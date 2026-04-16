@@ -1,0 +1,1383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ECS Desk Mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: desktop app shell. Titlebar, icon rail, resource tree, main view, bottom terminal, status bar. */
+:root {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f2f2f4;
+  --hover: #f0f0f3;
+  --border: #e4e4e8;
+  --fg: #17171c;
+  --muted: #696975;
+  --primary: #17171c;
+  --primary-fg: #fafafa;
+  --accent: #2f6bd8;
+  --accent-bg: #e9f0fc;
+  --ok: #15803d;
+  --ok-bg: #e7f6ec;
+  --warn: #b45309;
+  --warn-bg: #fdf1e1;
+  --crit: #c62828;
+  --crit-bg: #fcebea;
+  --on-crit: #ffffff;
+  --ring: #2f6bd8;
+  --shadow: 0 1px 2px rgba(20,20,30,.05), 0 8px 24px rgba(20,20,30,.08);
+  --overlay: rgba(20,20,28,.35);
+  --term-bg: #101216;
+  --term-fg: #d7dae0;
+  --term-muted: #7d8590;
+  --term-ok: #6fd28f;
+  --font-ui: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0d10; --surface: #151519; --surface-2: #1b1b20; --hover: #202027; --border: #2a2a32;
+    --fg: #ececf1; --muted: #9b9ba8; --primary: #f4f4f6; --primary-fg: #17171c;
+    --accent: #6d9cff; --accent-bg: #1a2540; --ok: #4ccb7c; --ok-bg: #12291b; --warn: #f0a33c; --warn-bg: #2e2112;
+    --crit: #f06a6a; --crit-bg: #331616; --on-crit: #17171c; --ring: #6d9cff;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px rgba(0,0,0,.5); --overlay: rgba(0,0,0,.55);
+    --term-bg: #0a0b0e; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0d10; --surface: #151519; --surface-2: #1b1b20; --hover: #202027; --border: #2a2a32;
+  --fg: #ececf1; --muted: #9b9ba8; --primary: #f4f4f6; --primary-fg: #17171c;
+  --accent: #6d9cff; --accent-bg: #1a2540; --ok: #4ccb7c; --ok-bg: #12291b; --warn: #f0a33c; --warn-bg: #2e2112;
+  --crit: #f06a6a; --crit-bg: #331616; --on-crit: #17171c; --ring: #6d9cff;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px rgba(0,0,0,.5); --overlay: rgba(0,0,0,.55);
+  --term-bg: #0a0b0e; color-scheme: dark;
+}
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 13.5px; line-height: 1.45; -webkit-font-smoothing: antialiased; overflow: hidden; }
+* { box-sizing: border-box; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); font-size: 12px; }
+.muted { color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* Shell */
+.app { display: grid; grid-template-rows: 44px minmax(0,1fr) 28px; height: 100%; }
+.titlebar { display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--surface); min-width: 0; }
+.traffic { display: flex; gap: 7px; margin-right: 6px; }
+.traffic span { width: 12px; height: 12px; border-radius: 50%; background: var(--border); }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; }
+.brand-mark { width: 22px; height: 22px; border-radius: 7px; background: var(--primary); color: var(--primary-fg); display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.mock-chip { font-size: 11px; color: var(--muted); border: 1px dashed var(--border); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.tb-spacer { flex: 1; min-width: 8px; }
+.search-trigger { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; width: min(360px, 34vw); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); color: var(--muted); cursor: pointer; }
+.search-trigger kbd, kbd { margin-left: auto; font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; background: var(--surface); color: var(--muted); }
+.profile-btn { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); cursor: pointer; white-space: nowrap; }
+.env-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.env-dot.prod { background: var(--crit); }
+
+.workspace { display: grid; grid-template-columns: 56px 268px minmax(0,1fr); min-height: 0; }
+.rail { border-right: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0; }
+.rail-btn { width: 38px; height: 38px; border-radius: var(--r-md); border: 0; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; position: relative; }
+.rail-btn:hover { background: var(--hover); color: var(--fg); }
+.rail-btn.active { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--border); }
+.rail-btn svg.i { width: 18px; height: 18px; }
+.rail-sep { flex: 1; }
+.rail-btn .tip { position: absolute; left: 46px; top: 50%; transform: translateY(-50%); background: var(--primary); color: var(--primary-fg); font-size: 12px; padding: 3px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; z-index: 30; }
+.rail-btn:hover .tip { opacity: 1; }
+
+.tree { border-right: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+.tree-head { padding: 12px 14px 8px; display: flex; align-items: center; gap: 8px; }
+.tree-head h2 { margin: 0; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.tree-filter { margin: 0 12px 8px; height: 30px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); padding: 0 10px; outline: none; }
+.tree-body { overflow: auto; padding: 0 8px 12px; min-height: 0; }
+.tnode { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: transparent; text-align: left; padding: 5px 8px; border-radius: var(--r-sm); cursor: pointer; color: var(--fg); white-space: nowrap; min-width: 0; }
+.tnode:hover { background: var(--hover); }
+.tnode.sel { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.tnode .chev { transition: transform .15s; color: var(--muted); width: 14px; height: 14px; }
+.tnode.open .chev { transform: rotate(90deg); }
+.tnode .lbl { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.tnode .cnt { font-size: 11px; color: var(--muted); }
+.tnode .sdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.t-l1 { padding-left: 8px; } .t-l2 { padding-left: 22px; } .t-l3 { padding-left: 36px; } .t-l4 { padding-left: 52px; }
+
+.main { display: grid; grid-template-rows: minmax(0,1fr) auto; min-width: 0; min-height: 0; }
+.content { overflow: auto; padding: 18px 24px 40px; min-width: 0; }
+.statusbar { display: flex; align-items: center; gap: 16px; padding: 0 12px; border-top: 1px solid var(--border); background: var(--surface); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.statusbar .live { display: inline-flex; align-items: center; gap: 6px; }
+.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.pulse.flash { animation: flash .6s ease-out; }
+@keyframes flash { 0% { box-shadow: 0 0 0 0 var(--ok); } 100% { box-shadow: 0 0 0 6px transparent; } }
+.sb-btn { border: 0; background: transparent; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.sb-btn:hover { background: var(--hover); color: var(--fg); }
+
+/* Common UI */
+.crumbs { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; flex-wrap: wrap; margin-bottom: 10px; }
+.crumbs button { border: 0; background: none; padding: 0; color: var(--muted); cursor: pointer; }
+.crumbs button:hover { color: var(--fg); text-decoration: underline; }
+.crumbs svg.i { width: 12px; height: 12px; }
+.page-head { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.page-head h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -.02em; text-wrap: balance; }
+.page-head .sub { color: var(--muted); margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.page-head .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { height: 32px; padding: 0 12px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface); font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--hover); }
+.btn.primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+.btn.primary:hover { opacity: .9; }
+.btn.danger { background: var(--crit); color: var(--on-crit); border-color: var(--crit); }
+.btn.ghost { background: transparent; border-color: transparent; }
+.btn.ghost:hover { background: var(--hover); }
+.btn.sm { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.btn.icon { width: 32px; padding: 0; justify-content: center; }
+.btn.sm.icon { width: 28px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.locked { opacity: .55; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 500; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge.plain::before { display: none; }
+.badge.ok { color: var(--ok); background: var(--ok-bg); }
+.badge.warn { color: var(--warn); background: var(--warn-bg); }
+.badge.crit { color: var(--crit); background: var(--crit-bg); }
+.badge.info { color: var(--accent); background: var(--accent-bg); }
+.tag { font-family: var(--font-mono); font-size: 11.5px; padding: 1px 6px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); white-space: nowrap; }
+
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 18px; overflow-x: auto; }
+.tab { border: 0; background: none; padding: 9px 12px; color: var(--muted); font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; display: inline-flex; gap: 6px; align-items: center; }
+.tab:hover { color: var(--fg); }
+.tab.active { color: var(--fg); border-bottom-color: var(--fg); }
+.tab .cnt { font-size: 11px; background: var(--surface-2); padding: 0 6px; border-radius: 999px; color: var(--muted); }
+
+.grid { display: grid; gap: 14px; }
+.g-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.g-4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 16px; min-width: 0; }
+.card h3 { margin: 0 0 12px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.card h3 .right { margin-left: auto; font-weight: 400; }
+.stat .k { font-size: 12px; color: var(--muted); }
+.stat .v { font-size: 26px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.stat .d { font-size: 12px; margin-top: 2px; }
+.section-title { font-size: 13px; font-weight: 600; margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+table { width: 100%; border-collapse: collapse; }
+th { font-size: 12px; color: var(--muted); text-align: left; padding: 9px 14px; font-weight: 500; background: var(--surface-2); white-space: nowrap; }
+td { padding: 10px 14px; border-top: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+td.wrap { white-space: normal; min-width: 280px; }
+tr.click { cursor: pointer; }
+tr.click:hover td { background: var(--hover); }
+td .link { font-weight: 600; }
+.bar { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; min-width: 80px; }
+.bar > span { display: block; height: 100%; border-radius: 999px; background: var(--fg); transition: width .4s; }
+.bar.ok > span { background: var(--ok); } .bar.warn > span { background: var(--warn); } .bar.crit > span { background: var(--crit); } .bar.info > span { background: var(--accent); }
+
+.attn { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--border); cursor: pointer; }
+.attn:first-of-type { border-top: 0; }
+.attn:hover { background: var(--hover); }
+.attn .stripe { width: 4px; align-self: stretch; border-radius: 4px; }
+.attn .body { flex: 1; min-width: 0; }
+.attn .t { font-weight: 600; }
+.attn .s { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.kv { display: grid; grid-template-columns: 140px minmax(0,1fr); gap: 8px 12px; font-size: 13px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+.banner { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--r-lg); background: var(--warn-bg); color: var(--fg); margin-bottom: 16px; flex-wrap: wrap; }
+.banner svg.i { color: var(--warn); }
+.banner .grow { flex: 1; min-width: 200px; }
+
+.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.input { height: 32px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); padding: 0 10px; outline: none; min-width: 0; }
+.input:focus { border-color: var(--ring); }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-md); padding: 2px; background: var(--surface-2); }
+.seg button { border: 0; background: transparent; height: 26px; padding: 0 10px; border-radius: 8px; cursor: pointer; color: var(--muted); font-size: 12.5px; font-weight: 500; }
+.seg button.on { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+/* Logs */
+.logview { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); height: 460px; overflow: auto; padding: 8px 0; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; }
+.logline { display: grid; grid-template-columns: 92px 52px 150px minmax(0,1fr); gap: 10px; padding: 0 14px; white-space: pre-wrap; }
+.logline:hover { background: var(--hover); }
+.logline .ts { color: var(--muted); }
+.logline .lv-INFO { color: var(--accent); } .logline .lv-WARN { color: var(--warn); } .logline .lv-ERROR { color: var(--crit); } .logline .lv-DEBUG { color: var(--muted); }
+.logline .src { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logline mark { background: var(--warn-bg); color: inherit; border-radius: 3px; }
+.logline.new { animation: newline 1.2s ease-out; }
+@keyframes newline { from { background: var(--accent-bg); } to { background: transparent; } }
+
+/* Charts */
+.chart { position: relative; }
+.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart .tt { position: absolute; top: 0; pointer-events: none; background: var(--primary); color: var(--primary-fg); font-size: 11.5px; padding: 3px 7px; border-radius: 6px; white-space: nowrap; transform: translateX(-50%); opacity: 0; }
+.chart-legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.chart-legend b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Code */
+pre.code { margin: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px 16px; overflow: auto; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; max-height: 520px; }
+.code .k { color: var(--accent); } .code .s { color: var(--ok); } .code .n { color: var(--warn); }
+
+/* Terminal */
+.term { height: 260px; display: grid; grid-template-rows: 36px minmax(0,1fr); border-top: 1px solid var(--border); background: var(--term-bg); color: var(--term-fg); }
+.term-head { display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--surface); border-bottom: 1px solid var(--border); color: var(--fg); min-width: 0; }
+.term-tab { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border-radius: 8px; background: var(--surface-2); font-size: 12px; font-family: var(--font-mono); max-width: 60%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.term-body { overflow: auto; padding: 10px 14px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; cursor: text; }
+.term-body .p { color: var(--term-ok); }
+.term-body .m { color: var(--term-muted); }
+.term-input-row { display: flex; gap: 8px; }
+.term-input { flex: 1; background: transparent; border: 0; outline: none; color: var(--term-fg); font-family: var(--font-mono); font-size: 12.5px; padding: 0; caret-color: var(--term-ok); }
+
+/* Overlays */
+.overlay { position: fixed; inset: 0; background: var(--overlay); display: grid; place-items: start center; padding: 12vh 16px 16px; z-index: 50; }
+.dialog { width: min(480px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); padding: 20px; }
+.dialog h2 { margin: 0 0 6px; font-size: 16px; font-weight: 650; }
+.dialog p { margin: 0 0 14px; color: var(--muted); }
+.dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.dialog label { display: block; font-size: 12.5px; font-weight: 500; margin-bottom: 6px; }
+.dialog .input { width: 100%; }
+.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper .input { width: 90px; text-align: center; font-variant-numeric: tabular-nums; font-size: 16px; height: 40px; }
+.stepper .btn { height: 40px; width: 40px; justify-content: center; padding: 0; font-size: 18px; }
+
+.palette { width: min(600px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+.palette input { width: 100%; border: 0; border-bottom: 1px solid var(--border); background: transparent; height: 48px; padding: 0 16px; outline: none; font-size: 15px; }
+.palette .list { max-height: 360px; overflow: auto; padding: 6px; }
+.palette .grp { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 8px 10px 4px; }
+.palette .item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer; }
+.palette .item .hint { margin-left: auto; color: var(--muted); font-size: 12px; }
+.palette .item.on { background: var(--hover); }
+.palette .empty { padding: 20px; text-align: center; color: var(--muted); }
+
+.menu { position: fixed; z-index: 60; min-width: 200px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 5px; }
+.menu .mi { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; text-align: left; padding: 7px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.menu .mi:hover { background: var(--hover); }
+.menu .mi.danger { color: var(--crit); }
+.menu .mi .hint { margin-left: auto; color: var(--muted); font-size: 12px; }
+.menu .sep { height: 1px; background: var(--border); margin: 5px 4px; }
+.menu .mh { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 6px 10px 4px; }
+
+.switch { position: relative; width: 34px; height: 20px; border-radius: 999px; border: 0; background: var(--border); cursor: pointer; flex: none; padding: 0; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
+.switch[aria-checked="true"] { background: var(--primary); }
+.switch[aria-checked="true"]::after { transform: translateX(14px); }
+
+.toasts { position: fixed; right: 16px; bottom: 40px; display: flex; flex-direction: column; gap: 8px; z-index: 70; max-width: calc(100% - 32px); }
+.toast { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 10px 14px; display: flex; gap: 10px; align-items: flex-start; width: 340px; max-width: 100%; animation: tin .2s ease-out; }
+.toast .ti { margin-top: 2px; }
+.toast.ok .ti { color: var(--ok); } .toast.warn .ti { color: var(--warn); } .toast.crit .ti { color: var(--crit); } .toast.info .ti { color: var(--accent); }
+.toast b { display: block; font-weight: 600; }
+.toast span { color: var(--muted); font-size: 12.5px; }
+@keyframes tin { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.setting { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.setting:first-of-type { border-top: 0; padding-top: 0; }
+.setting .txt { flex: 1; min-width: 220px; }
+.setting .txt b { display: block; font-weight: 600; }
+.setting .txt span { color: var(--muted); font-size: 12.5px; }
+.empty-state { padding: 32px; text-align: center; color: var(--muted); }
+
+@media (max-width: 900px) {
+  .workspace { grid-template-columns: 52px minmax(0,1fr); }
+  .tree { display: none; }
+  .search-trigger { width: auto; }
+  .search-trigger .st-label, .mock-chip, .tb-region { display: none; }
+  .content { padding: 16px 16px 32px; }
+  .logline { grid-template-columns: 70px 44px minmax(0,1fr); }
+  .logline .src { display: none; }
+  .statusbar .hide-sm { display: none; }
+}
+@media (max-width: 520px) {
+  .traffic, .brand-name { display: none; }
+  .kv { grid-template-columns: 1fr; gap: 2px 0; }
+  .kv dd { margin-bottom: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <header class="titlebar">
+    <div class="traffic" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="brand"><div class="brand-mark">E</div><span class="brand-name">ECS Desk</span></div>
+    <span class="mock-chip">UI mock · example data</span>
+    <div class="tb-spacer"></div>
+    <button class="search-trigger" data-action="palette" aria-label="Search">
+      <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <span class="st-label">Search clusters, services, tasks</span><kbd>⌘K</kbd>
+    </button>
+    <div class="tb-spacer"></div>
+    <button class="profile-btn tb-region" data-action="region-menu" id="regionBtn"></button>
+    <button class="profile-btn" data-action="profile-menu" id="profileBtn"></button>
+    <button class="btn ghost icon" data-action="theme" aria-label="Switch theme" id="themeBtn"></button>
+  </header>
+
+  <div class="workspace">
+    <nav class="rail" id="rail" aria-label="Main"></nav>
+    <aside class="tree" aria-label="Resources">
+      <div class="tree-head"><h2>Resources</h2><span class="tb-spacer"></span>
+        <button class="btn ghost sm icon" data-action="refresh" aria-label="Refresh"><svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+      </div>
+      <input class="tree-filter" id="treeFilter" placeholder="Filter" aria-label="Filter resources">
+      <div class="tree-body" id="tree"></div>
+    </aside>
+    <main class="main">
+      <div class="content" id="content"></div>
+      <section class="term" id="term" hidden></section>
+    </main>
+  </div>
+
+  <footer class="statusbar" id="statusbar"></footer>
+</div>
+<div id="layer"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+(() => {
+/* ---------- Icons ---------- */
+const I = {
+  home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+  clusters: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  services: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
+  tasks: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  logs: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+  events: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  settings: '<path d="M4 6h9M19 6h1M4 12h3M13 12h7M4 18h11M21 18h-1"/><circle cx="16" cy="6" r="2.5"/><circle cx="10" cy="12" r="2.5"/><circle cx="18" cy="18" r="2.5"/>',
+  chev: '<path d="m9 6 6 6-6 6"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  term: '<path d="m4 17 6-5-6-5M12 19h8"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+  x: '<path d="M6 6l12 12M18 6 6 18"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  pause: '<path d="M8 5v14M16 5v14"/>',
+  play: '<path d="M7 5v14l11-7z"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/>',
+  rocket: '<path d="M5 15c-1.5 1.5-2 5-2 5s3.5-.5 5-2"/><path d="M9 15l-3-3c2-6 7-9 14-9 0 7-3 12-9 14z"/><circle cx="15" cy="9" r="1.5"/>',
+  scale: '<path d="M4 12h16M12 4v16"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  check: '<path d="m5 12 5 5 9-10"/>',
+  alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.5"/>',
+  ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  region: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  minus: '<path d="M5 12h14"/>',
+  max: '<path d="M4 14v6h6M20 10V4h-6"/>',
+};
+const ic = (n, cls='') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${I[n]}</svg>`;
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $ = s => document.querySelector(s);
+
+/* ---------- Seeded random ---------- */
+function rng(seedStr) {
+  let h = 1779033703 ^ seedStr.length;
+  for (let i = 0; i < seedStr.length; i++) { h = Math.imul(h ^ seedStr.charCodeAt(i), 3432918353); h = h << 13 | h >>> 19; }
+  return () => { h = Math.imul(h ^ h >>> 16, 2246822507); h = Math.imul(h ^ h >>> 13, 3266489909); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
+}
+const hex = (r, n) => Array.from({length: n}, () => Math.floor(r() * 16).toString(16)).join('');
+const now = Date.now();
+const hms = t => new Date(t).toLocaleTimeString([], {hour12: false});
+const ago = t => { const s = Math.max(1, Math.round((Date.now() - t) / 1000)); if (s < 60) return s + ' s ago'; const m = Math.round(s / 60); if (m < 60) return m + ' min ago'; const h = Math.round(m / 60); if (h < 48) return h + ' h ago'; return Math.round(h / 24) + ' d ago'; };
+
+/* ---------- Example data ---------- */
+const PROFILES = [
+  {id: 'demo-prod', account: '1111-2222-3333', env: 'prod', prod: true, auth: 'SSO · AdministratorAccess', regions: ['us-east-1', 'eu-west-1']},
+  {id: 'demo-staging', account: '4444-5555-6666', env: 'staging', prod: false, auth: 'SSO · PowerUser', regions: ['us-east-1']},
+  {id: 'demo-dev', account: '7777-8888-9999', env: 'dev', prod: false, auth: 'Access key · dev-admin', regions: ['us-east-1', 'us-west-2']},
+];
+const SVC = {
+  'api-gateway':     {desired: 4, cpu: 512,  mem: 1024, port: 8080, rev: 88,  cpuBase: 34, memBase: 52},
+  'orders-api':      {desired: 6, cpu: 1024, mem: 2048, port: 8080, rev: 142, cpuBase: 46, memBase: 61},
+  'payments-worker': {desired: 4, cpu: 1024, mem: 2048, port: null, rev: 57,  cpuBase: 28, memBase: 44},
+  'notifications':   {desired: 2, cpu: 256,  mem: 512,  port: 9000, rev: 31,  cpuBase: 22, memBase: 71},
+  'web-frontend':    {desired: 3, cpu: 512,  mem: 1024, port: 3000, rev: 203, cpuBase: 18, memBase: 39},
+  'ingest-worker':   {desired: 5, cpu: 2048, mem: 4096, port: null, rev: 64,  cpuBase: 63, memBase: 58},
+  'etl-scheduler':   {desired: 1, cpu: 512,  mem: 1024, port: null, rev: 19,  cpuBase: 9,  memBase: 33},
+  'search-indexer':  {desired: 2, cpu: 1024, mem: 4096, port: 9200, rev: 45,  cpuBase: 41, memBase: 67},
+};
+const LAYOUT = {
+  default: [['core', ['api-gateway', 'orders-api', 'payments-worker', 'notifications', 'web-frontend']], ['data', ['ingest-worker', 'etl-scheduler', 'search-indexer']]],
+  secondary: [['core', ['api-gateway', 'orders-api', 'web-frontend']]],
+};
+const WORLD = {};
+let svcIndex = {};
+
+function makeTask(svc, r, opts) {
+  const id = hex(r, 32);
+  const az = ['a', 'b', 'c'][Math.floor(r() * 3)];
+  const started = now - Math.floor(r() * 5 * 86400e3) - 600e3;
+  const t = {
+    id, short: id.slice(0, 8), svc: svc.name, cluster: svc.cluster,
+    status: 'RUNNING', health: svc.port ? 'HEALTHY' : 'UNKNOWN',
+    az: svc.region + az, ip: `10.${svc.env === 'prod' ? 20 : 40}.${Math.floor(r() * 60) + 10}.${Math.floor(r() * 240) + 10}`,
+    started, rev: svc.rev, cpu: Math.round(svc.cpuBase + (r() - .5) * 14), mem: Math.round(svc.memBase + (r() - .5) * 10),
+    stopReason: null, exitCode: null, ...opts,
+  };
+  t.containers = [
+    {name: svc.name, image: `4821…amazonaws.com/${svc.name}:${t.rev === svc.rev ? 'v' : 'v'}${t.rev}.0.${Math.floor(r() * 9)}`, status: t.status === 'STOPPED' ? 'STOPPED' : t.status === 'PROVISIONING' ? 'PENDING' : 'RUNNING', health: t.health, exitCode: t.exitCode, essential: true, cpu: svc.cpu - 128, mem: svc.mem - 256},
+    {name: 'otel-collector', image: 'public.ecr.aws/aws-observability/aws-otel-collector:v0.40.0', status: t.status === 'STOPPED' ? 'STOPPED' : t.status === 'PROVISIONING' ? 'PENDING' : 'RUNNING', health: 'UNKNOWN', exitCode: t.status === 'STOPPED' ? 0 : null, essential: false, cpu: 128, mem: 256},
+  ];
+  return t;
+}
+
+function makeService(name, cluster, profile, region) {
+  const b = SVC[name];
+  const r = rng(profile.id + region + cluster + name);
+  const svc = {
+    name, cluster, region, profile: profile.id, env: profile.env, prod: profile.prod,
+    desired: b.desired, running: b.desired, pending: 0, rev: b.rev, cpu: b.cpu, mem: b.mem, port: b.port,
+    cpuBase: b.cpuBase, memBase: b.memBase, launch: 'FARGATE', state: 'healthy',
+    deployments: [], events: [], tasks: [], stopped: [],
+  };
+  const special = profile.id === 'demo-prod' && region === 'us-east-1' && cluster === 'core-prod';
+  if (special && name === 'payments-worker') {
+    svc.state = 'deploying'; svc.rev = 58; svc.pending = 1;
+    svc.deployments = [
+      {id: 'ecs-svc/' + hex(r, 19).replace(/\D/g, '7').slice(0, 19), status: 'PRIMARY', rev: 58, desired: 4, running: 1, pending: 1, rollout: 'IN_PROGRESS', created: now - 4 * 60e3},
+      {id: 'ecs-svc/' + hex(r, 19).replace(/\D/g, '3').slice(0, 19), status: 'ACTIVE', rev: 57, desired: 3, running: 3, pending: 0, rollout: 'COMPLETED', created: now - 6 * 86400e3},
+    ];
+    for (let i = 0; i < 3; i++) svc.tasks.push(makeTask(svc, r, {rev: 57}));
+    svc.tasks.push(makeTask(svc, r, {rev: 58, started: now - 3 * 60e3}));
+    svc.tasks.push(makeTask(svc, r, {rev: 58, status: 'PROVISIONING', health: 'UNKNOWN', started: now - 40e3}));
+    svc.running = 4;
+    svc.events = [
+      {t: now - 40e3, m: `(service payments-worker) has started 1 tasks: (task ${svc.tasks[4].short}).`},
+      {t: now - 3 * 60e3, m: `(service payments-worker) has started 1 tasks: (task ${svc.tasks[3].short}).`},
+      {t: now - 4 * 60e3, m: '(service payments-worker) updated the task definition to payments-worker:58.'},
+      {t: now - 6 * 86400e3, m: '(service payments-worker) has reached a steady state.'},
+    ];
+  } else if (special && name === 'notifications') {
+    svc.state = 'failing'; svc.running = 1; svc.pending = 1;
+    svc.tasks.push(makeTask(svc, r, {mem: 96, cpu: 31, started: now - 9 * 60e3}));
+    svc.tasks.push(makeTask(svc, r, {status: 'PROVISIONING', health: 'UNKNOWN', started: now - 25e3}));
+    for (let i = 0; i < 3; i++) {
+      svc.stopped.push(makeTask(svc, r, {status: 'STOPPED', health: 'UNHEALTHY', exitCode: 137, started: now - (14 + i * 7) * 60e3, stopReason: 'Essential container in task exited. OutOfMemoryError: Container killed due to memory usage'}));
+    }
+    svc.stopped.forEach(t => { t.containers[0].status = 'STOPPED'; t.containers[0].exitCode = 137; });
+    svc.deployments = [{id: 'ecs-svc/4417730281992041183', status: 'PRIMARY', rev: 31, desired: 2, running: 1, pending: 1, rollout: 'COMPLETED', created: now - 2 * 86400e3}];
+    svc.events = [
+      {t: now - 25e3, m: `(service notifications) has started 1 tasks: (task ${svc.tasks[1].short}).`, lv: 'warn'},
+      {t: now - 31e3, m: `(service notifications) stopped 1 running tasks: (task ${svc.stopped[0].short}). Reason: OutOfMemoryError.`, lv: 'crit'},
+      {t: now - 7 * 60e3, m: `(service notifications) has started 1 tasks: (task ${svc.tasks[0].short}).`, lv: 'warn'},
+      {t: now - 8 * 60e3, m: `(service notifications) stopped 1 running tasks: (task ${svc.stopped[1].short}). Reason: OutOfMemoryError.`, lv: 'crit'},
+      {t: now - 15 * 60e3, m: `(service notifications) stopped 1 running tasks: (task ${svc.stopped[2].short}). Reason: OutOfMemoryError.`, lv: 'crit'},
+      {t: now - 2 * 86400e3, m: '(service notifications) has reached a steady state.'},
+    ];
+  } else {
+    for (let i = 0; i < svc.desired; i++) svc.tasks.push(makeTask(svc, r, {}));
+    svc.deployments = [{id: 'ecs-svc/' + Math.floor(r() * 9e18).toString().padStart(19, '1'), status: 'PRIMARY', rev: svc.rev, desired: svc.desired, running: svc.desired, pending: 0, rollout: 'COMPLETED', created: now - Math.floor(r() * 9 + 1) * 86400e3}];
+    svc.events = [
+      {t: now - Math.floor(r() * 5 + 1) * 3600e3, m: `(service ${name}) has reached a steady state.`},
+      {t: now - Math.floor(r() * 4 + 7) * 3600e3, m: `(service ${name}) has reached a steady state.`},
+      {t: svc.deployments[0].created + 90e3, m: `(service ${name}) has started ${svc.desired} tasks.`},
+      {t: svc.deployments[0].created, m: `(service ${name}) updated the task definition to ${name}:${svc.rev}.`},
+    ];
+  }
+  return svc;
+}
+
+function buildWorld() {
+  PROFILES.forEach(p => {
+    WORLD[p.id] = {};
+    p.regions.forEach((reg, ri) => {
+      const layout = ri === 0 ? LAYOUT.default : LAYOUT.secondary;
+      WORLD[p.id][reg] = layout.map(([base, svcs]) => {
+        const cname = `${base}-${p.env}${ri === 0 ? '' : '-' + reg.split('-')[0]}`;
+        return {name: cname, region: reg, services: svcs.map(s => makeService(s, cname, p, reg)), insights: base === 'core', providers: base === 'core' ? 'FARGATE, FARGATE_SPOT' : 'FARGATE'};
+      });
+    });
+  });
+}
+buildWorld();
+
+/* ---------- State ---------- */
+let theme = null;
+try { theme = localStorage.getItem('ecsdesk-theme'); } catch (e) {}
+const S = {
+  profile: 'demo-prod', region: 'us-east-1', view: 'overview', cluster: null, service: null, task: null, tab: 'overview',
+  readOnly: {'demo-prod': true, 'demo-staging': false, 'demo-dev': false},
+  open: new Set(['core-prod', 'data-prod', 'core-staging', 'data-staging', 'core-dev', 'data-dev', 'core-prod-eu', 'core-dev-us']),
+  treeFilter: '', svcFilter: '', svcState: 'all', taskFilter: '', taskState: 'running',
+  logsPaused: false, logFilter: '', logLevel: 'all', logScope: 'all', range: '1h',
+  term: null, termLines: [], polledAt: Date.now(), apiCalls: 38,
+  pollFocused: '3 s', pollBg: '45 s', telemetry: false, confirmProd: true,
+};
+const clusters = () => WORLD[S.profile][S.region] || [];
+const allSvcs = () => clusters().flatMap(c => c.services);
+const prof = () => PROFILES.find(p => p.id === S.profile);
+const findSvc = (cl, name) => clusters().find(c => c.name === cl)?.services.find(s => s.name === name);
+const curSvc = () => findSvc(S.cluster, S.service);
+const isRO = () => S.readOnly[S.profile];
+
+const STATE_META = {
+  healthy: {cls: 'ok', label: 'Healthy', color: 'var(--ok)'},
+  deploying: {cls: 'info', label: 'Deploying', color: 'var(--accent)'},
+  degraded: {cls: 'warn', label: 'Degraded', color: 'var(--warn)'},
+  failing: {cls: 'crit', label: 'Failing', color: 'var(--crit)'},
+};
+const stBadge = s => `<span class="badge ${STATE_META[s.state].cls}">${STATE_META[s.state].label}</span>`;
+const taskBadge = t => {
+  const m = {RUNNING: 'ok', PROVISIONING: 'info', PENDING: 'info', STOPPING: 'warn', STOPPED: 'crit'}[t.status] || '';
+  return `<span class="badge ${m}">${t.status[0] + t.status.slice(1).toLowerCase()}</span>`;
+};
+const healthBadge = h => h === 'HEALTHY' ? '<span class="badge ok plain">Healthy</span>' : h === 'UNHEALTHY' ? '<span class="badge crit plain">Unhealthy</span>' : '<span class="badge plain">No check</span>';
+
+/* ---------- Rendering: shell ---------- */
+const NAV = [
+  ['overview', 'home', 'Overview'], ['clusters', 'clusters', 'Clusters'], ['services', 'services', 'Services'],
+  ['tasks', 'tasks', 'Tasks'], ['logs', 'logs', 'Logs'], ['events', 'events', 'Events'],
+];
+function renderRail() {
+  const active = S.view === 'service' ? 'services' : S.view === 'task' ? 'tasks' : S.view;
+  $('#rail').innerHTML = NAV.map(([v, icon, label]) =>
+    `<button class="rail-btn ${active === v ? 'active' : ''}" data-action="nav" data-view="${v}" aria-label="${label}">${ic(icon)}<span class="tip">${label}</span></button>`
+  ).join('') + `<div class="rail-sep"></div>
+    <button class="rail-btn ${S.term ? 'active' : ''}" data-action="term-toggle" aria-label="Terminal">${ic('term')}<span class="tip">Terminal (Ctrl+\`)</span></button>
+    <button class="rail-btn ${S.view === 'settings' ? 'active' : ''}" data-action="nav" data-view="settings" aria-label="Settings">${ic('settings')}<span class="tip">Settings</span></button>`;
+}
+function renderTitlebar() {
+  const p = prof();
+  $('#profileBtn').innerHTML = `<span class="env-dot ${p.prod ? 'prod' : ''}"></span><span>${p.id}</span>${isRO() ? `<span class="badge warn plain" style="padding:0 7px">${ic('lock')}Read-only</span>` : ''}${ic('down')}`;
+  $('#regionBtn').innerHTML = `${ic('region')}<span class="mono">${S.region}</span>${ic('down')}`;
+  const dark = document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+  $('#themeBtn').innerHTML = ic(dark ? 'sun' : 'moon');
+}
+function renderTree() {
+  const f = S.treeFilter.toLowerCase();
+  const p = prof();
+  let h = `<button class="tnode t-l1 open" data-action="nav" data-view="overview">${ic('user')}<span class="lbl"><b>${p.id}</b> <span class="muted mono">${p.account}</span></span></button>`;
+  p.regions.forEach(reg => {
+    const on = reg === S.region;
+    h += `<button class="tnode t-l2 ${on ? 'open' : ''}" data-action="set-region" data-region="${reg}">${ic('chev', 'chev')}${ic('region')}<span class="lbl mono">${reg}</span></button>`;
+    if (!on) return;
+    clusters().forEach(c => {
+      const svcs = c.services.filter(s => !f || s.name.includes(f) || c.name.includes(f));
+      if (f && !svcs.length) return;
+      const open = S.open.has(c.name) || !!f;
+      const sel = S.view === 'cluster' && S.cluster === c.name;
+      h += `<button class="tnode t-l3 ${open ? 'open' : ''} ${sel ? 'sel' : ''}" data-action="tree-cluster" data-cluster="${c.name}">${ic('chev', 'chev')}${ic('clusters')}<span class="lbl">${c.name}</span><span class="cnt">${c.services.length}</span></button>`;
+      if (open) svcs.forEach(s => {
+        const sel2 = (S.view === 'service' || S.view === 'task') && S.service === s.name && S.cluster === c.name;
+        h += `<button class="tnode t-l4 ${sel2 ? 'sel' : ''}" data-action="open-service" data-cluster="${c.name}" data-service="${s.name}"><span class="sdot" style="background:${STATE_META[s.state].color}"></span><span class="lbl">${s.name}</span><span class="cnt num">${s.running}/${s.desired}</span></button>`;
+      });
+    });
+  });
+  $('#tree').innerHTML = h;
+}
+function renderStatus() {
+  const secs = Math.round((Date.now() - S.polledAt) / 1000);
+  const p = prof();
+  $('#statusbar').innerHTML = `
+    <span class="live"><span class="pulse" id="pulse"></span>Connected</span>
+    <span class="hide-sm">${p.id} · <span class="mono">${S.region}</span></span>
+    <span>Polled ${secs} s ago · every ${S.pollFocused}</span>
+    <span class="hide-sm num">${S.apiCalls} API calls/min · rate budget ${Math.round(S.apiCalls / 2.4)}%</span>
+    <span class="tb-spacer"></span>
+    <button class="sb-btn" data-action="term-toggle">${ic('term')}Terminal</button>
+    <button class="sb-btn hide-sm" data-action="palette"><kbd style="margin:0">⌘K</kbd></button>`;
+}
+
+/* ---------- Rendering: views ---------- */
+function crumbs(parts) {
+  return `<div class="crumbs">${parts.map((p, i) => (i ? ic('chev') : '') + (p.a ? `<button ${p.a}>${esc(p.l)}</button>` : `<span>${esc(p.l)}</span>`)).join('')}</div>`;
+}
+const roBanner = () => isRO() ? `<div class="banner">${ic('lock')}<div class="grow"><b>${S.profile} is read-only.</b> <span class="muted">Deploy, scale, stop, and exec are off for this profile.</span></div><button class="btn sm" data-action="ro-off">Allow actions</button></div>` : '';
+const actBtn = (action, icon, label, extra = '', cls = 'btn') => `<button class="${cls} ${isRO() ? 'locked' : ''}" data-action="${action}" ${extra}>${ic(isRO() ? 'lock' : icon)}${label}</button>`;
+
+function viewOverview() {
+  const svcs = allSvcs();
+  const cnt = st => svcs.filter(s => s.state === st).length;
+  const tasks = svcs.reduce((a, s) => a + s.running, 0);
+  const desired = svcs.reduce((a, s) => a + s.desired, 0);
+  const attn = svcs.filter(s => s.state !== 'healthy');
+  const recent = svcs.flatMap(s => s.events.map(e => ({...e, s}))).sort((a, b) => b.t - a.t).slice(0, 6);
+  return `${crumbs([{l: S.profile}, {l: S.region}, {l: 'Overview'}])}
+  <div class="page-head"><div><h1>Overview</h1><div class="sub"><span>${clusters().length} clusters</span>·<span>${svcs.length} services</span>·<span class="mono">${S.region}</span></div></div>
+    <div class="actions"><button class="btn" data-action="refresh">${ic('refresh')}Refresh</button></div></div>
+  ${roBanner()}
+  <div class="grid g-4">
+    <div class="card stat"><div class="k">Running tasks</div><div class="v">${tasks}<span class="muted" style="font-size:15px"> / ${desired}</span></div><div class="d muted">desired across all services</div></div>
+    <div class="card stat"><div class="k">Healthy services</div><div class="v" style="color:var(--ok)">${cnt('healthy')}</div><div class="d muted">steady state</div></div>
+    <div class="card stat"><div class="k">Deploying</div><div class="v" style="color:var(--accent)">${cnt('deploying')}</div><div class="d muted">rollouts in progress</div></div>
+    <div class="card stat"><div class="k">Failing</div><div class="v" style="color:var(--crit)">${cnt('failing') + cnt('degraded')}</div><div class="d muted">tasks below desired</div></div>
+  </div>
+  <div class="grid g-2" style="margin-top:14px">
+    <div class="card" style="padding:0;overflow:hidden"><h3 style="padding:16px 16px 4px">Needs attention <span class="right muted">${attn.length}</span></h3>
+      ${attn.length ? attn.map(s => `<div class="attn" data-action="open-service" data-cluster="${s.cluster}" data-service="${s.name}" tabindex="0" role="button">
+        <span class="stripe" style="background:${STATE_META[s.state].color}"></span>
+        <div class="body"><div class="t">${s.name} <span class="muted" style="font-weight:400">· ${s.cluster}</span></div>
+        <div class="s">${s.state === 'failing' ? 'Tasks stop with exit code 137 (OutOfMemoryError). 3 restarts in 15 min.' : s.state === 'deploying' ? `Rollout to revision ${s.rev}: ${s.deployments[0].running} of ${s.deployments[0].desired} new tasks running.` : 'Below desired count.'}</div></div>
+        ${stBadge(s)}</div>`).join('') : '<div class="empty-state">All services are at steady state.</div>'}
+    </div>
+    <div class="card" style="padding:0;overflow:hidden"><h3 style="padding:16px 16px 4px">Recent events <button class="btn ghost sm right" data-action="nav" data-view="events">View all</button></h3>
+      ${recent.map(e => `<div class="attn" data-action="open-service" data-cluster="${e.s.cluster}" data-service="${e.s.name}" data-tab="events" tabindex="0" role="button">
+        <span class="stripe" style="background:${e.lv === 'crit' ? 'var(--crit)' : e.lv === 'warn' ? 'var(--warn)' : 'var(--border)'}"></span>
+        <div class="body"><div class="s" style="color:var(--fg)">${esc(e.m)}</div><div class="s">${ago(e.t)} · ${hms(e.t)}</div></div></div>`).join('')}
+    </div>
+  </div>
+  <div class="section-title">Clusters</div>
+  ${clusterTable()}`;
+}
+function clusterTable() {
+  return `<div class="table-wrap"><table><thead><tr><th>Cluster</th><th>Services</th><th>Running tasks</th><th>Health</th><th>Capacity providers</th><th>Container Insights</th></tr></thead><tbody>
+  ${clusters().map(c => {
+    const run = c.services.reduce((a, s) => a + s.running, 0), des = c.services.reduce((a, s) => a + s.desired, 0);
+    const bad = c.services.filter(s => s.state === 'failing').length, dep = c.services.filter(s => s.state === 'deploying').length;
+    return `<tr class="click" data-action="open-cluster" data-cluster="${c.name}"><td><span class="link">${c.name}</span></td><td class="num">${c.services.length}</td>
+      <td><div style="display:flex;align-items:center;gap:10px"><div class="bar ${run < des ? 'warn' : 'ok'}" style="width:90px"><span style="width:${Math.min(100, run / des * 100)}%"></span></div><span class="num">${run} / ${des}</span></div></td>
+      <td>${bad ? `<span class="badge crit">${bad} failing</span>` : dep ? `<span class="badge info">${dep} deploying</span>` : '<span class="badge ok">Healthy</span>'}</td>
+      <td class="mono">${c.providers}</td><td>${c.insights ? '<span class="badge ok plain">On</span>' : '<span class="badge plain">Off</span>'}</td></tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+function viewClusters() {
+  return `${crumbs([{l: S.profile}, {l: S.region}, {l: 'Clusters'}])}
+  <div class="page-head"><div><h1>Clusters</h1><div class="sub">${clusters().length} clusters in <span class="mono">${S.region}</span></div></div></div>
+  ${clusterTable()}`;
+}
+function viewCluster() {
+  const c = clusters().find(x => x.name === S.cluster);
+  if (!c) return viewClusters();
+  return `${crumbs([{l: S.profile}, {l: S.region}, {l: 'Clusters', a: 'data-action="nav" data-view="clusters"'}, {l: c.name}])}
+  <div class="page-head"><div><h1>${c.name}</h1><div class="sub"><span class="tag">arn:aws:ecs:${S.region}:${prof().account.replace(/-/g, '')}:cluster/${c.name}</span></div></div></div>
+  ${roBanner()}
+  <div class="grid g-4" style="margin-bottom:18px">
+    <div class="card stat"><div class="k">Services</div><div class="v">${c.services.length}</div></div>
+    <div class="card stat"><div class="k">Running tasks</div><div class="v">${c.services.reduce((a, s) => a + s.running, 0)}</div></div>
+    <div class="card stat"><div class="k">Capacity providers</div><div class="v" style="font-size:15px;margin-top:8px">${c.providers}</div></div>
+    <div class="card stat"><div class="k">Container Insights</div><div class="v" style="font-size:15px;margin-top:8px">${c.insights ? 'Enabled' : 'Disabled'}</div></div>
+  </div>
+  ${svcTable(c.services)}`;
+}
+function svcTable(list) {
+  if (!list.length) return '<div class="card empty-state">No services match this filter.</div>';
+  return `<div class="table-wrap"><table><thead><tr><th>Service</th><th>Cluster</th><th>Status</th><th>Tasks</th><th>Task definition</th><th>CPU</th><th>Memory</th><th>Last deploy</th><th></th></tr></thead><tbody>
+  ${list.map(s => `<tr class="click" data-action="open-service" data-cluster="${s.cluster}" data-service="${s.name}">
+    <td><span class="link">${s.name}</span></td><td class="muted">${s.cluster}</td><td>${stBadge(s)}</td>
+    <td><div style="display:flex;align-items:center;gap:10px"><div class="bar ${STATE_META[s.state].cls}" style="width:70px"><span style="width:${Math.min(100, s.running / s.desired * 100)}%"></span></div><span class="num">${s.running}/${s.desired}</span>${s.pending ? `<span class="muted num">+${s.pending}</span>` : ''}</div></td>
+    <td class="mono">${s.name}:${s.rev}</td><td class="num">${s.cpuBase}%</td><td class="num" style="${s.state === 'failing' ? 'color:var(--crit)' : ''}">${s.state === 'failing' ? 96 : s.memBase}%</td>
+    <td class="muted">${ago(s.deployments[0].created)}</td>
+    <td><button class="btn ghost sm icon" data-action="svc-menu" data-cluster="${s.cluster}" data-service="${s.name}" aria-label="Actions for ${s.name}">${ic('more')}</button></td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+function viewServices() {
+  let list = allSvcs();
+  if (S.svcState !== 'all') list = list.filter(s => S.svcState === 'attention' ? s.state !== 'healthy' : s.state === S.svcState);
+  if (S.svcFilter) list = list.filter(s => s.name.includes(S.svcFilter.toLowerCase()));
+  const segs = [['all', 'All'], ['healthy', 'Healthy'], ['deploying', 'Deploying'], ['attention', 'Needs attention']];
+  return `${crumbs([{l: S.profile}, {l: S.region}, {l: 'Services'}])}
+  <div class="page-head"><div><h1>Services</h1><div class="sub">${allSvcs().length} services in ${clusters().length} clusters</div></div></div>
+  ${roBanner()}
+  <div class="toolbar"><input class="input" id="svcFilter" placeholder="Filter by name" value="${esc(S.svcFilter)}" style="width:240px" aria-label="Filter services">
+    <div class="seg">${segs.map(([k, l]) => `<button class="${S.svcState === k ? 'on' : ''}" data-action="svc-state" data-v="${k}">${l}</button>`).join('')}</div></div>
+  ${svcTable(list)}`;
+}
+function taskTable(list, showSvc) {
+  if (!list.length) return '<div class="card empty-state">No tasks match this filter.</div>';
+  return `<div class="table-wrap"><table><thead><tr><th>Task</th>${showSvc ? '<th>Service</th>' : ''}<th>Status</th><th>Health</th><th>Revision</th><th>Zone</th><th>Private IP</th><th>CPU</th><th>Memory</th><th>Started</th><th></th></tr></thead><tbody>
+  ${list.map(t => `<tr class="click" data-action="open-task" data-cluster="${t.cluster}" data-service="${t.svc}" data-task="${t.id}">
+    <td class="mono"><span class="link">${t.short}</span></td>${showSvc ? `<td>${t.svc}</td>` : ''}<td>${taskBadge(t)}</td><td>${healthBadge(t.health)}</td>
+    <td class="mono">${t.rev}</td><td class="mono">${t.az}</td><td class="mono">${t.ip}</td>
+    <td class="num">${t.status === 'RUNNING' ? t.cpu + '%' : '—'}</td><td class="num" style="${t.mem > 90 ? 'color:var(--crit)' : ''}">${t.status === 'RUNNING' ? t.mem + '%' : '—'}</td>
+    <td class="muted">${ago(t.started)}</td>
+    <td><button class="btn ghost sm icon" data-action="task-menu" data-cluster="${t.cluster}" data-service="${t.svc}" data-task="${t.id}" aria-label="Actions for task ${t.short}">${ic('more')}</button></td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+function viewTasks() {
+  let list = allSvcs().flatMap(s => S.taskState === 'stopped' ? s.stopped : s.tasks);
+  if (S.taskFilter) { const f = S.taskFilter.toLowerCase(); list = list.filter(t => t.id.includes(f) || t.svc.includes(f) || t.ip.includes(f)); }
+  return `${crumbs([{l: S.profile}, {l: S.region}, {l: 'Tasks'}])}
+  <div class="page-head"><div><h1>Tasks</h1><div class="sub">${allSvcs().reduce((a, s) => a + s.tasks.length, 0)} active tasks across ${allSvcs().length} services</div></div></div>
+  ${roBanner()}
+  <div class="toolbar"><input class="input" id="taskFilter" placeholder="Filter by task ID, service, or IP" value="${esc(S.taskFilter)}" style="width:280px" aria-label="Filter tasks">
+    <div class="seg"><button class="${S.taskState === 'running' ? 'on' : ''}" data-action="task-state" data-v="running">Active</button><button class="${S.taskState === 'stopped' ? 'on' : ''}" data-action="task-state" data-v="stopped">Stopped</button></div></div>
+  ${taskTable(list, true)}`;
+}
+
+/* Service detail */
+const TABS = [['overview', 'Overview'], ['tasks', 'Tasks'], ['deployments', 'Deployments'], ['events', 'Events'], ['logs', 'Logs'], ['metrics', 'Metrics'], ['config', 'Task definition']];
+function viewService() {
+  const s = curSvc();
+  if (!s) return viewServices();
+  const tabCount = {tasks: s.tasks.length, deployments: s.deployments.length, events: s.events.length};
+  let body = '';
+  if (S.tab === 'overview') body = svcOverview(s);
+  if (S.tab === 'tasks') body = `<div class="toolbar"><div class="seg"><button class="${S.taskState === 'running' ? 'on' : ''}" data-action="task-state" data-v="running">Active ${s.tasks.length}</button><button class="${S.taskState === 'stopped' ? 'on' : ''}" data-action="task-state" data-v="stopped">Stopped ${s.stopped.length}</button></div></div>${taskTable(S.taskState === 'stopped' ? s.stopped : s.tasks, false)}`;
+  if (S.tab === 'deployments') body = deploymentsView(s);
+  if (S.tab === 'events') body = eventsTable(s.events.map(e => ({...e, s})), false);
+  if (S.tab === 'logs') body = logsView([s]);
+  if (S.tab === 'metrics') body = metricsView(s);
+  if (S.tab === 'config') body = configView(s);
+  return `${crumbs([{l: S.profile}, {l: S.region}, {l: s.cluster, a: `data-action="open-cluster" data-cluster="${s.cluster}"`}, {l: s.name}])}
+  <div class="page-head"><div><h1>${s.name}</h1>
+    <div class="sub">${stBadge(s)}<span class="num">${s.running} running · ${s.desired} desired · ${s.pending} pending</span><span class="tag">${s.name}:${s.rev}</span><span class="tag">${s.launch}</span></div></div>
+    <div class="actions">
+      ${actBtn('scale', 'scale', 'Scale', `data-cluster="${s.cluster}" data-service="${s.name}"`)}
+      ${actBtn('deploy', 'rocket', 'Force new deployment', `data-cluster="${s.cluster}" data-service="${s.name}"`, 'btn primary')}
+      <button class="btn icon" data-action="svc-menu" data-cluster="${s.cluster}" data-service="${s.name}" aria-label="More actions">${ic('more')}</button>
+    </div></div>
+  ${roBanner()}
+  <div class="tabs" role="tablist">${TABS.map(([k, l]) => `<button class="tab ${S.tab === k ? 'active' : ''}" role="tab" aria-selected="${S.tab === k}" data-action="tab" data-tab="${k}">${l}${tabCount[k] != null ? `<span class="cnt">${tabCount[k]}</span>` : ''}</button>`).join('')}</div>
+  ${body}`;
+}
+function svcOverview(s) {
+  const d = s.deployments[0];
+  const cpu = series(s, 'cpu', 60), mem = series(s, 'mem', 60);
+  return `<div class="grid g-2">
+    <div class="card"><h3>Rollout <span class="right">${d.rollout === 'IN_PROGRESS' ? '<span class="badge info">In progress</span>' : '<span class="badge ok">Completed</span>'}</span></h3>
+      ${s.deployments.map(x => `<div style="margin-bottom:12px"><div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span class="tag">${s.name}:${x.rev}</span><span class="badge plain">${x.status === 'PRIMARY' ? 'Primary' : 'Active'}</span><span class="muted num" style="margin-left:auto">${x.running} / ${x.desired} running</span></div>
+      <div class="bar ${x.status === 'PRIMARY' ? (x.rollout === 'IN_PROGRESS' ? 'info' : s.state === 'failing' ? 'crit' : 'ok') : ''}"><span style="width:${x.desired ? x.running / x.desired * 100 : 0}%"></span></div></div>`).join('')}
+      <div class="muted" style="font-size:12.5px">Circuit breaker on · rollback on failure · min 100% · max 200%</div>
+    </div>
+    <div class="card"><h3>Details</h3><dl class="kv">
+      <dt>Cluster</dt><dd>${s.cluster}</dd><dt>Launch type</dt><dd>${s.launch} · platform 1.4.0</dd>
+      <dt>Task size</dt><dd class="num">${s.cpu / 1024} vCPU · ${s.mem / 1024} GB</dd>
+      <dt>Load balancer</dt><dd>${s.port ? `${s.name}-tg · port ${s.port}` : '<span class="muted">None (worker)</span>'}</dd>
+      <dt>Network</dt><dd class="mono">awsvpc · 3 subnets · sg-0${hex(rng(s.name), 7)}</dd>
+      <dt>Exec</dt><dd>${s.env === 'prod' && s.name === 'web-frontend' ? '<span class="badge warn plain">Off: enableExecuteCommand is false</span>' : '<span class="badge ok plain">Enabled</span>'}</dd>
+    </dl></div>
+    <div class="card"><h3>CPU <span class="right muted">last 1 h</span></h3>${lineChart(cpu, 'var(--accent)', '%')}</div>
+    <div class="card"><h3>Memory <span class="right muted">last 1 h</span></h3>${lineChart(mem, s.state === 'failing' ? 'var(--crit)' : 'var(--ok)', '%')}</div>
+  </div>
+  <div class="section-title">Latest events <button class="btn ghost sm" data-action="tab" data-tab="events">View all</button></div>
+  ${eventsTable(s.events.slice(0, 4).map(e => ({...e, s})), false)}`;
+}
+function deploymentsView(s) {
+  return `<div class="table-wrap"><table><thead><tr><th>Deployment</th><th>Status</th><th>Task definition</th><th>Rollout</th><th>Progress</th><th>Created</th><th></th></tr></thead><tbody>
+  ${s.deployments.map((d, i) => `<tr><td class="mono">${d.id}</td><td><span class="badge plain">${d.status === 'PRIMARY' ? 'Primary' : 'Active'}</span></td><td class="mono">${s.name}:${d.rev}</td>
+    <td>${d.rollout === 'IN_PROGRESS' ? '<span class="badge info">In progress</span>' : d.rollout === 'ROLLED_BACK' ? '<span class="badge warn">Rolled back</span>' : '<span class="badge ok">Completed</span>'}</td>
+    <td><div style="display:flex;align-items:center;gap:10px"><div class="bar ${d.rollout === 'IN_PROGRESS' ? 'info' : 'ok'}" style="width:110px"><span style="width:${d.desired ? d.running / d.desired * 100 : 0}%"></span></div><span class="num">${d.running}/${d.desired}</span></div></td>
+    <td class="muted">${ago(d.created)}</td>
+    <td>${i === 0 ? actBtn('rollback', 'undo', 'Roll back', `data-cluster="${s.cluster}" data-service="${s.name}"`, 'btn sm') : ''}</td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="section-title">Previous revisions</div>
+  <div class="table-wrap"><table><thead><tr><th>Revision</th><th>Image tag</th><th>Registered</th></tr></thead><tbody>
+  ${[0, 1, 2, 3].map(k => `<tr><td class="mono">${s.name}:${s.rev - k}</td><td class="mono">v${s.rev - k}.0.${(k * 3) % 7}</td><td class="muted">${ago(now - (k * 4 + 1) * 86400e3 - 3600e3)}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+function eventsTable(list, showSvc) {
+  return `<div class="table-wrap"><table><thead><tr><th>Time</th>${showSvc ? '<th>Service</th>' : ''}<th>Message</th></tr></thead><tbody>
+  ${list.sort((a, b) => b.t - a.t).map(e => `<tr${showSvc ? ` class="click" data-action="open-service" data-cluster="${e.s.cluster}" data-service="${e.s.name}" data-tab="events"` : ''}>
+    <td class="mono"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:8px;background:${e.lv === 'crit' ? 'var(--crit)' : e.lv === 'warn' ? 'var(--warn)' : 'var(--border)'}"></span>${hms(e.t)} <span class="muted">· ${ago(e.t)}</span></td>
+    ${showSvc ? `<td>${e.s.name}</td>` : ''}<td class="wrap">${esc(e.m)}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+function viewEvents() {
+  const list = allSvcs().flatMap(s => s.events.map(e => ({...e, s})));
+  return `${crumbs([{l: S.profile}, {l: S.region}, {l: 'Events'}])}
+  <div class="page-head"><div><h1>Events</h1><div class="sub">Service events from all clusters, newest first</div></div></div>
+  ${eventsTable(list, true)}`;
+}
+
+/* Task detail */
+function viewTask() {
+  const s = curSvc();
+  const t = s && [...s.tasks, ...s.stopped].find(x => x.id === S.task);
+  if (!t) return viewService();
+  return `${crumbs([{l: S.profile}, {l: S.region}, {l: s.cluster, a: `data-action="open-cluster" data-cluster="${s.cluster}"`}, {l: s.name, a: `data-action="open-service" data-cluster="${s.cluster}" data-service="${s.name}" data-tab="tasks"`}, {l: t.short}])}
+  <div class="page-head"><div><h1 class="mono" style="font-size:19px">${t.id}</h1>
+    <div class="sub">${taskBadge(t)}${healthBadge(t.health)}<span class="tag">${s.name}:${t.rev}</span><span class="tag">${t.az}</span><span class="tag">${t.ip}</span></div></div>
+    <div class="actions">
+      <button class="btn" data-action="copy" data-text="arn:aws:ecs:${S.region}:${prof().account.replace(/-/g, '')}:task/${s.cluster}/${t.id}">${ic('copy')}Copy ARN</button>
+      ${t.status !== 'STOPPED' ? actBtn('exec', 'term', 'Exec', `data-cluster="${s.cluster}" data-service="${s.name}" data-task="${t.id}" data-container="${s.name}"`) : ''}
+      ${t.status !== 'STOPPED' ? actBtn('stop-task', 'stop', 'Stop task', `data-cluster="${s.cluster}" data-service="${s.name}" data-task="${t.id}"`, 'btn') : ''}
+    </div></div>
+  ${roBanner()}
+  ${t.stopReason ? `<div class="banner" style="background:var(--crit-bg)">${ic('alert')}<div class="grow"><b>Stopped.</b> ${esc(t.stopReason)} <span class="muted">Exit code ${t.exitCode}.</span></div><button class="btn sm" data-action="scale-mem">Raise memory</button></div>` : ''}
+  <div class="section-title">Containers</div>
+  <div class="grid g-2">
+  ${t.containers.map(c => `<div class="card"><h3>${c.name}${c.essential ? '<span class="badge plain">Essential</span>' : ''}<span class="right">${c.status === 'RUNNING' ? '<span class="badge ok">Running</span>' : c.status === 'PENDING' ? '<span class="badge info">Pending</span>' : '<span class="badge crit">Stopped</span>'}</span></h3>
+    <dl class="kv"><dt>Image</dt><dd class="mono">${esc(c.image)}</dd><dt>Health</dt><dd>${healthBadge(c.health)}</dd><dt>Reserved</dt><dd class="num">${c.cpu} CPU units · ${c.mem} MiB</dd>${c.exitCode != null ? `<dt>Exit code</dt><dd class="num" style="${c.exitCode ? 'color:var(--crit)' : ''}">${c.exitCode}</dd>` : ''}</dl>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      ${c.status === 'RUNNING' ? actBtn('exec', 'term', 'Exec', `data-cluster="${s.cluster}" data-service="${s.name}" data-task="${t.id}" data-container="${c.name}"`, 'btn sm') : ''}
+      <button class="btn sm" data-action="open-service" data-cluster="${s.cluster}" data-service="${s.name}" data-tab="logs">${ic('logs')}Logs</button>
+    </div></div>`).join('')}
+  </div>
+  <div class="section-title">Task</div>
+  <div class="card"><dl class="kv">
+    <dt>Started</dt><dd>${new Date(t.started).toLocaleString()} (${ago(t.started)})</dd><dt>Started by</dt><dd class="mono">ecs-svc/${s.deployments[0].id.slice(8, 20)}</dd>
+    <dt>Launch type</dt><dd>FARGATE · platform 1.4.0</dd><dt>ENI</dt><dd class="mono">eni-0${hex(rng(t.id), 16)}</dd>
+    <dt>Usage now</dt><dd class="num">${t.status === 'RUNNING' ? `CPU ${t.cpu}% · Memory ${t.mem}%` : '—'}</dd>
+  </dl></div>`;
+}
+
+/* Logs */
+const LOGT = {
+  'api-gateway': [['INFO', 'GET /v1/orders 200 23ms'], ['INFO', 'POST /v1/checkout 201 118ms'], ['INFO', 'GET /v1/health 200 2ms'], ['WARN', 'upstream orders-api slow: 812ms'], ['INFO', 'GET /v1/catalog?page=3 200 41ms'], ['DEBUG', 'jwt verified sub=usr_8f2a']],
+  'orders-api': [['INFO', 'order ord_29f1 created total=84.20 USD'], ['INFO', 'GET /orders/ord_77c2 200 14ms'], ['INFO', 'db pool: 18/40 in use'], ['WARN', 'retrying inventory reserve (attempt 2)'], ['INFO', 'order ord_a913 paid']],
+  'payments-worker': [['INFO', 'consumed 25 messages from payments-queue'], ['INFO', 'charge ch_31aa succeeded'], ['INFO', 'worker started, revision 58'], ['WARN', 'visibility timeout extended for msg 9f2e'], ['INFO', 'charge ch_77d0 succeeded']],
+  'notifications': [['INFO', 'sending batch of 500 emails'], ['WARN', 'heap usage 91% (466 MiB / 512 MiB)'], ['ERROR', 'java.lang.OutOfMemoryError: Java heap space'], ['ERROR', '  at com.example.notify.TemplateCache.load(TemplateCache.java:88)'], ['WARN', 'GC overhead limit near: 97% time in GC'], ['INFO', 'loaded 1,204 templates into cache']],
+  'web-frontend': [['INFO', 'GET / 200 31ms'], ['INFO', 'GET /_next/static/chunks/app.js 200 3ms'], ['INFO', 'GET /cart 200 58ms'], ['WARN', 'image optimizer cache miss']],
+  'ingest-worker': [['INFO', 'batch 88213 written: 10,000 rows'], ['INFO', 'kinesis shard-0004 lag 120 ms'], ['WARN', 'throttled by DynamoDB, backoff 200ms']],
+  'etl-scheduler': [['INFO', 'job nightly-rollup queued'], ['INFO', 'job hourly-sync finished in 42 s']],
+  'search-indexer': [['INFO', 'indexed 2,000 docs into products-v7'], ['INFO', 'refresh interval 1s'], ['WARN', 'segment merge took 1.8 s']],
+};
+let logBuf = [];
+function genLog(svc, t, r) {
+  const tpl = LOGT[svc.name];
+  const pick = svc.state === 'failing' && r() < .45 ? tpl[2 + Math.floor(r() * 2)] : tpl[Math.floor(r() * tpl.length)];
+  const task = svc.tasks[Math.floor(r() * svc.tasks.length)] || svc.tasks[0];
+  return {t, lv: pick[0], msg: pick[1], svc: svc.name, task: task ? task.short : '—'};
+}
+function seedLogs() {
+  logBuf = [];
+  const r = rng('logs' + S.profile + S.region);
+  const svcs = allSvcs();
+  for (let i = 120; i > 0; i--) { const s = svcs[Math.floor(r() * svcs.length)]; logBuf.push(genLog(s, Date.now() - i * 1700, r)); }
+}
+function logsView(scope) {
+  const names = scope.map(s => s.name);
+  const f = S.logFilter.toLowerCase();
+  let lines = logBuf.filter(l => names.includes(l.svc));
+  if (S.logLevel !== 'all') lines = lines.filter(l => l.lv === S.logLevel);
+  if (f) lines = lines.filter(l => l.msg.toLowerCase().includes(f));
+  lines = lines.slice(-250);
+  const hl = m => { const e = esc(m); if (!f) return e; const i = e.toLowerCase().indexOf(esc(f)); return i < 0 ? e : e.slice(0, i) + '<mark>' + e.slice(i, i + esc(f).length) + '</mark>' + e.slice(i + esc(f).length); };
+  return `<div class="toolbar">
+    <input class="input" id="logFilter" placeholder="Search log lines" value="${esc(S.logFilter)}" style="width:240px" aria-label="Search logs">
+    <div class="seg">${['all', 'INFO', 'WARN', 'ERROR'].map(l => `<button class="${S.logLevel === l ? 'on' : ''}" data-action="log-level" data-v="${l}">${l === 'all' ? 'All levels' : l[0] + l.slice(1).toLowerCase()}</button>`).join('')}</div>
+    <button class="btn sm" data-action="log-pause">${ic(S.logsPaused ? 'play' : 'pause')}${S.logsPaused ? 'Resume' : 'Pause'}</button>
+    <span class="muted" style="font-size:12px;margin-left:auto">${S.logsPaused ? 'Paused' : '<span class="badge ok">Live tail</span>'} · <span class="mono">/ecs/${scope.length === 1 ? scope[0].name : '*'}</span></span></div>
+  <div class="logview" id="logview">${lines.length ? lines.map(l => `<div class="logline"><span class="ts">${hms(l.t)}</span><span class="lv-${l.lv}">${l.lv}</span><span class="src">${l.svc}/${l.task}</span><span>${hl(l.msg)}</span></div>`).join('') : '<div class="empty-state">No log lines match this filter.</div>'}</div>`;
+}
+function viewLogs() {
+  const svcs = allSvcs();
+  const scope = S.logScope === 'all' ? svcs : svcs.filter(s => s.name === S.logScope);
+  return `${crumbs([{l: S.profile}, {l: S.region}, {l: 'Logs'}])}
+  <div class="page-head"><div><h1>Logs</h1><div class="sub">CloudWatch Logs live tail for ${scope.length === svcs.length ? 'all services' : scope[0].name}</div></div>
+    <div class="actions"><select class="input" id="logScope" aria-label="Service"><option value="all">All services</option>${[...new Set(svcs.map(s => s.name))].map(n => `<option ${S.logScope === n ? 'selected' : ''}>${n}</option>`).join('')}</select></div></div>
+  ${logsView(scope)}`;
+}
+
+/* Metrics */
+function series(s, kind, n) {
+  const r = rng(s.profile + s.cluster + s.name + kind + S.range);
+  const base = kind === 'cpu' ? s.cpuBase : s.memBase;
+  let v = base, out = [];
+  for (let i = 0; i < n; i++) {
+    if (s.state === 'failing' && kind === 'mem') { v = (i % 14) * 6.5 + 30 + r() * 4; v = Math.min(99, v); }
+    else { v += (r() - .5) * 7 + (base - v) * .15; if (kind === 'cpu' && r() < .05) v += 18; }
+    out.push(Math.max(1, Math.min(100, Math.round(v * 10) / 10)));
+  }
+  return out;
+}
+let chartId = 0; const CHARTS = {};
+function lineChart(data, color, unit) {
+  const id = 'c' + (++chartId); CHARTS[id] = {data, unit};
+  const W = 600, H = 170, L = 36, R = 12, T = 10, B = 24, n = data.length;
+  const x = i => L + i / (n - 1) * (W - L - R), y = v => T + (1 - v / 100) * (H - T - B);
+  const pts = data.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const last = data[n - 1];
+  const rangeLbl = {'1h': ['-60m', '-30m', 'now'], '6h': ['-6h', '-3h', 'now'], '24h': ['-24h', '-12h', 'now']}[S.range];
+  return `<div class="chart" data-chart="${id}"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Line chart, latest ${last}${unit}">
+    ${[0, 25, 50, 75, 100].map(v => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--border)" stroke-width="1"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end" font-size="10.5" fill="var(--muted)">${v}%</text>`).join('')}
+    ${rangeLbl.map((l, i) => `<text x="${x(i * (n - 1) / 2)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === 2 ? 'end' : 'middle'}" font-size="10.5" fill="var(--muted)">${l}</text>`).join('')}
+    <polygon points="${L},${y(0)} ${pts} ${W - R},${y(0)}" fill="${color}" fill-opacity="0.1"/>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round"/>
+    <circle cx="${x(n - 1)}" cy="${y(last)}" r="3.5" fill="${color}"/>
+    <line class="hov" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="var(--muted)" stroke-dasharray="3 3" opacity="0"/>
+  </svg><div class="tt"></div>
+  <div class="chart-legend"><span>Now <b>${last}${unit}</b></span><span>Avg <b>${(data.reduce((a, b) => a + b, 0) / n).toFixed(1)}${unit}</b></span><span>Max <b>${Math.max(...data)}${unit}</b></span></div></div>`;
+}
+function metricsView(s) {
+  const n = 60;
+  return `<div class="toolbar"><div class="seg">${['1h', '6h', '24h'].map(r => `<button class="${S.range === r ? 'on' : ''}" data-action="range" data-v="${r}">${r}</button>`).join('')}</div>
+    <span class="muted" style="font-size:12px">CloudWatch · 1-minute period · service average</span></div>
+  <div class="grid g-2">
+    <div class="card"><h3>CPU utilization</h3>${lineChart(series(s, 'cpu', n), 'var(--accent)', '%')}</div>
+    <div class="card"><h3>Memory utilization ${s.state === 'failing' ? '<span class="badge crit right" style="margin-left:auto">Near limit</span>' : ''}</h3>${lineChart(series(s, 'mem', n), s.state === 'failing' ? 'var(--crit)' : 'var(--ok)', '%')}</div>
+  </div>`;
+}
+
+/* Task definition */
+function configView(s) {
+  const td = {
+    family: s.name, revision: s.rev, networkMode: 'awsvpc', requiresCompatibilities: ['FARGATE'],
+    cpu: String(s.cpu), memory: String(s.mem),
+    executionRoleArn: `arn:aws:iam::${prof().account.replace(/-/g, '')}:role/${s.name}-exec`,
+    taskRoleArn: `arn:aws:iam::${prof().account.replace(/-/g, '')}:role/${s.name}-task`,
+    containerDefinitions: [{
+      name: s.name, image: `${prof().account.replace(/-/g, '')}.dkr.ecr.${S.region}.amazonaws.com/${s.name}:v${s.rev}.0.2`, essential: true,
+      portMappings: s.port ? [{containerPort: s.port, protocol: 'tcp'}] : [],
+      environment: [{name: 'APP_ENV', value: s.env}, {name: 'LOG_LEVEL', value: 'info'}],
+      secrets: [{name: 'DATABASE_URL', valueFrom: `arn:aws:ssm:${S.region}:…:parameter/${s.env}/${s.name}/db`}],
+      logConfiguration: {logDriver: 'awslogs', options: {'awslogs-group': `/ecs/${s.name}`, 'awslogs-region': S.region, 'awslogs-stream-prefix': 'ecs'}},
+      healthCheck: s.port ? {command: ['CMD-SHELL', `curl -f http://localhost:${s.port}/health || exit 1`], interval: 30, retries: 3} : undefined,
+    }, {name: 'otel-collector', image: 'public.ecr.aws/aws-observability/aws-otel-collector:v0.40.0', essential: false}],
+  };
+  const json = JSON.stringify(td, null, 2);
+  const colored = esc(json).replace(/(&quot;[^&]*?&quot;)(\s*:)/g, '<span class="k">$1</span>$2').replace(/:\s(&quot;.*?&quot;)/g, ': <span class="s">$1</span>').replace(/:\s(\d+)/g, ': <span class="n">$1</span>');
+  return `<div class="toolbar"><span class="tag">${s.name}:${s.rev}</span><span class="muted" style="font-size:12.5px">Read-only in v1. Editing comes later.</span>
+    <button class="btn sm" style="margin-left:auto" data-action="copy" data-text="${esc(json)}">${ic('copy')}Copy JSON</button></div>
+  <pre class="code">${colored}</pre>`;
+}
+
+/* Settings */
+function viewSettings() {
+  const sw = (key, on, label) => `<button class="switch" role="switch" aria-checked="${on}" aria-label="${label}" data-action="${key}"></button>`;
+  return `${crumbs([{l: 'Settings'}])}
+  <div class="page-head"><div><h1>Settings</h1><div class="sub">Settings stay on this machine.</div></div></div>
+  <div class="grid" style="max-width:860px">
+    <div class="card"><h3>AWS profiles <span class="right muted">from ~/.aws/config</span></h3>
+      <div class="table-wrap" style="border-radius:10px"><table><thead><tr><th>Profile</th><th>Account</th><th>Auth</th><th>Regions</th><th>Read-only</th></tr></thead><tbody>
+      ${PROFILES.map(p => `<tr><td><span class="env-dot ${p.prod ? 'prod' : ''}" style="display:inline-block;margin-right:8px"></span><b>${p.id}</b></td><td class="mono">${p.account}</td><td>${p.auth}</td><td class="mono">${p.regions.join(', ')}</td>
+        <td>${sw('ro-toggle" data-profile="' + p.id, S.readOnly[p.id], 'Read-only for ' + p.id)}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="muted" style="font-size:12.5px;margin:10px 0 0">Profiles with "prod" in the name start in read-only mode.</p></div>
+    <div class="card"><h3>Polling</h3>
+      <div class="setting"><div class="txt"><b>Focused view</b><span>How often the open page refreshes.</span></div>
+        <div class="seg">${['2 s', '3 s', '5 s'].map(v => `<button class="${S.pollFocused === v ? 'on' : ''}" data-action="poll-f" data-v="${v}">${v}</button>`).join('')}</div></div>
+      <div class="setting"><div class="txt"><b>Background views</b><span>Other clusters and regions in the tree.</span></div>
+        <div class="seg">${['30 s', '45 s', '60 s'].map(v => `<button class="${S.pollBg === v ? 'on' : ''}" data-action="poll-b" data-v="${v}">${v}</button>`).join('')}</div></div>
+      <div class="setting"><div class="txt"><b>Rate budget</b><span>Calls back off when AWS returns ThrottlingException.</span></div><span class="num">${S.apiCalls} calls/min · ${Math.round(S.apiCalls / 2.4)}% of budget</span></div>
+    </div>
+    <div class="card"><h3>Safety</h3>
+      <div class="setting"><div class="txt"><b>Type the service name to confirm</b><span>Applies to destructive actions on production profiles.</span></div>${sw('confirm-toggle', S.confirmProd, 'Type to confirm')}</div>
+      <div class="setting"><div class="txt"><b>Minimum IAM policy</b><span>Copy the policy for read-only use or full use.</span></div>
+        <div style="display:flex;gap:8px"><button class="btn sm" data-action="copy" data-text="ecs:Describe*, ecs:List*, logs:StartLiveTail, logs:FilterLogEvents, cloudwatch:GetMetricData">${ic('copy')}Read-only</button><button class="btn sm" data-action="copy" data-text="ecs:*Service, ecs:StopTask, ecs:ExecuteCommand, ssm:StartSession">${ic('copy')}Full</button></div></div>
+    </div>
+    <div class="card"><h3>Exec</h3>
+      <div class="setting"><div class="txt"><b>Session Manager plugin</b><span class="mono">/usr/local/bin/session-manager-plugin</span></div><span class="badge ok">Found · 1.2.650.0</span></div>
+    </div>
+    <div class="card"><h3>Privacy and appearance</h3>
+      <div class="setting"><div class="txt"><b>Send usage data</b><span>Off by default. Credentials and resource names are never sent.</span></div>${sw('telemetry', S.telemetry, 'Send usage data')}</div>
+      <div class="setting"><div class="txt"><b>Theme</b><span>Follow the system, or pick one.</span></div>
+        <div class="seg">${['system', 'light', 'dark'].map(v => `<button class="${(document.documentElement.dataset.theme || 'system') === v ? 'on' : ''}" data-action="set-theme" data-v="${v}">${v[0].toUpperCase() + v.slice(1)}</button>`).join('')}</div></div>
+    </div>
+  </div>`;
+}
+
+/* ---------- Render root ---------- */
+function render(keepScroll) {
+  const content = $('#content');
+  const st = content.scrollTop;
+  chartId = 0;
+  const v = S.view;
+  const html = v === 'overview' ? viewOverview() : v === 'clusters' ? viewClusters() : v === 'cluster' ? viewCluster() : v === 'services' ? viewServices()
+    : v === 'service' ? viewService() : v === 'task' ? viewTask() : v === 'tasks' ? viewTasks() : v === 'logs' ? viewLogs() : v === 'events' ? viewEvents() : viewSettings();
+  content.innerHTML = html;
+  if (keepScroll) content.scrollTop = st; else content.scrollTop = 0;
+  const lv = $('#logview'); if (lv) lv.scrollTop = lv.scrollHeight;
+  renderRail(); renderTitlebar(); renderTree(); renderStatus();
+}
+function go(view, extra = {}) {
+  Object.assign(S, {view}, extra);
+  closeMenu();
+  render();
+}
+
+/* ---------- Overlays ---------- */
+const layer = $('#layer');
+let menuEl = null;
+function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
+function openMenu(anchor, html) {
+  closeMenu();
+  menuEl = document.createElement('div'); menuEl.className = 'menu'; menuEl.innerHTML = html;
+  document.body.appendChild(menuEl);
+  const r = anchor.getBoundingClientRect(), mw = menuEl.offsetWidth, mh = menuEl.offsetHeight;
+  let left = Math.min(r.right - mw, window.innerWidth - mw - 8); left = Math.max(8, left);
+  let topY = r.bottom + 6; if (topY + mh > window.innerHeight - 8) topY = Math.max(8, r.top - mh - 6);
+  menuEl.style.left = left + 'px'; menuEl.style.top = topY + 'px';
+  menuEl.querySelector('button')?.focus();
+}
+function openDialog(html, onMount) {
+  layer.innerHTML = `<div class="overlay" data-action="overlay"><div class="dialog" role="dialog" aria-modal="true">${html}</div></div>`;
+  onMount && onMount(layer.querySelector('.dialog'));
+}
+function closeDialog() { layer.innerHTML = ''; }
+function toast(kind, title, msg) {
+  const el = document.createElement('div'); el.className = 'toast ' + kind;
+  el.innerHTML = `<span class="ti">${ic(kind === 'ok' ? 'check' : kind === 'info' ? 'info' : 'alert')}</span><div><b>${esc(title)}</b>${msg ? `<span>${esc(msg)}</span>` : ''}</div>`;
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), 4200);
+}
+function guard() {
+  if (!isRO()) return true;
+  toast('warn', `${S.profile} is read-only`, 'Select "Allow actions" or change it in Settings.');
+  return false;
+}
+function confirmAction({title, body, cta, danger, svc, onOk}) {
+  const needType = svc && svc.prod && S.confirmProd;
+  openDialog(`<h2>${esc(title)}</h2><p>${body}</p>
+    ${needType ? `<label for="confirmInput">Type <span class="mono">${svc.name}</span> to confirm</label><input class="input" id="confirmInput" autocomplete="off">` : ''}
+    <div class="foot"><button class="btn" data-action="close-dialog">Cancel</button><button class="btn ${danger ? 'danger' : 'primary'}" id="okBtn" ${needType ? 'disabled' : ''}>${esc(cta)}</button></div>`, d => {
+    const ok = d.querySelector('#okBtn'), inp = d.querySelector('#confirmInput');
+    if (inp) { inp.focus(); inp.addEventListener('input', () => { ok.disabled = inp.value !== svc.name; }); inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !ok.disabled) ok.click(); }); }
+    else ok.focus();
+    ok.addEventListener('click', () => { closeDialog(); onOk(); });
+  });
+}
+
+/* ---------- Simulated actions ---------- */
+function startRollout(s, rev, reason) {
+  const old = s.deployments.find(d => d.status === 'PRIMARY');
+  if (old) { old.status = 'ACTIVE'; old.rollout = old.rollout === 'IN_PROGRESS' ? 'ROLLED_BACK' : 'COMPLETED'; }
+  const d = {id: 'ecs-svc/' + hex(rng(String(Date.now())), 19).replace(/\D/g, '5'), status: 'PRIMARY', rev, desired: s.desired, running: 0, pending: Math.min(2, s.desired), rollout: 'IN_PROGRESS', created: Date.now()};
+  s.deployments = [d, ...s.deployments.filter(x => x.status === 'ACTIVE').slice(0, 1)];
+  s.rev = rev; s.state = 'deploying'; s.pending = d.pending;
+  s.events.unshift({t: Date.now(), m: `(service ${s.name}) ${reason}`});
+  const r = rng(d.id);
+  const iv = setInterval(() => {
+    d.running = Math.min(d.desired, d.running + 1);
+    const oldD = s.deployments[1]; if (oldD) oldD.running = Math.max(0, oldD.running - 1);
+    const nt = makeTask(s, r, {rev, started: Date.now()});
+    s.tasks.unshift(nt); if (s.tasks.length > s.desired + 1) s.tasks.pop();
+    s.events.unshift({t: Date.now(), m: `(service ${s.name}) has started 1 tasks: (task ${nt.short}).`});
+    if (d.running >= d.desired) {
+      clearInterval(iv); d.rollout = 'COMPLETED'; d.pending = 0; s.pending = 0; s.running = s.desired; s.state = 'healthy';
+      s.tasks = s.tasks.slice(0, s.desired).map(t => ({...t, rev}));
+      if (oldD) s.deployments = [d];
+      s.events.unshift({t: Date.now(), m: `(service ${s.name}) has reached a steady state.`});
+      toast('ok', `${s.name} is at steady state`, `${d.desired} tasks run revision ${rev}.`);
+    }
+    if (document.activeElement?.tagName !== 'INPUT') render(true);
+  }, 1600);
+  render(true);
+}
+
+/* ---------- Terminal ---------- */
+function openTerm(svc, task, container) {
+  S.term = {svc, task, container};
+  S.termLines = [
+    `<span class="m">$ aws ecs execute-command --cluster ${svc.cluster} --task ${task.id} --container ${container} --interactive --command "/bin/sh"</span>`,
+    `<span class="m">Starting session with SessionId: ecs-execute-command-0${hex(rng(task.id + 's'), 16)}</span>`,
+  ];
+  renderTerm();
+  render(true);
+  setTimeout(() => $('#termInput')?.focus(), 30);
+}
+const PROMPT = () => `<span class="p">/app #</span> `;
+function termRun(cmd) {
+  const t = S.term; const out = [];
+  const c = cmd.trim();
+  if (!c) {}
+  else if (c === 'help') out.push('Try: ls, ps, env, df -h, cat /etc/os-release, curl localhost/health, clear, exit');
+  else if (c === 'ls') out.push('bin  config  node_modules  package.json  server.js  templates');
+  else if (c === 'ps' || c === 'ps aux') out.push('PID   USER     TIME  COMMAND\n    1 app       2:14 node server.js\n   48 root      0:00 /managed-agents/execute-command/ssm-agent-worker\n   61 app       0:00 /bin/sh\n   62 app       0:00 ps');
+  else if (c === 'env') out.push(`APP_ENV=${t.svc.env}\nLOG_LEVEL=info\nAWS_REGION=${S.region}\nECS_CONTAINER_METADATA_URI_V4=http://169.254.170.2/v4/${t.task.id.slice(0, 12)}\nDATABASE_URL=********`);
+  else if (c === 'df -h') out.push('Filesystem   Size  Used Avail Use% Mounted on\noverlay       30G  6.1G   22G  22% /');
+  else if (c === 'cat /etc/os-release') out.push('NAME="Alpine Linux"\nVERSION_ID=3.20.3\nPRETTY_NAME="Alpine Linux v3.20"');
+  else if (c.startsWith('curl')) out.push(t.svc.port ? `{"status":"ok","revision":${t.task.rev},"uptime_s":${Math.round((Date.now() - t.task.started) / 1000)}}` : 'curl: (7) Failed to connect to localhost port 80: Connection refused');
+  else if (c === 'clear') { S.termLines = []; renderTerm(); return; }
+  else if (c === 'exit') { S.termLines.push(PROMPT() + esc(c), '<span class="m">Exiting session with sessionId: ecs-execute-command-…</span>'); renderTerm(true); return; }
+  else out.push(`/bin/sh: ${esc(c.split(' ')[0])}: not found`);
+  S.termLines.push(PROMPT() + esc(c), ...out.map(esc));
+  renderTerm();
+}
+function renderTerm(ended) {
+  const el = $('#term');
+  if (!S.term) { el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  const t = S.term;
+  el.innerHTML = `<div class="term-head"><span class="term-tab">${ic('term')}${t.svc.name}/${t.task.short} · ${t.container}</span>
+    <span class="muted" style="font-size:12px;white-space:nowrap" class="hide-sm">${S.profile} · ${S.region}</span>
+    <span class="tb-spacer"></span><button class="btn ghost sm icon" data-action="term-close" aria-label="Close terminal">${ic('x')}</button></div>
+    <div class="term-body" id="termBody">${S.termLines.join('\n')}${ended ? '' : `\n<div class="term-input-row">${PROMPT()}<input class="term-input" id="termInput" autocomplete="off" spellcheck="false" aria-label="Terminal input"></div>`}</div>`;
+  const b = $('#termBody'); b.scrollTop = b.scrollHeight;
+  const inp = $('#termInput');
+  if (inp) { inp.focus(); inp.addEventListener('keydown', e => { if (e.key === 'Enter') { termRun(inp.value); } }); }
+  if (ended) setTimeout(() => { if (S.term === t) { S.term = null; renderTerm(); renderRail(); } }, 1200);
+}
+
+/* ---------- Command palette ---------- */
+function paletteItems() {
+  const items = [];
+  NAV.concat([['settings', 'settings', 'Settings']]).forEach(([v, icon, l]) => items.push({g: 'Go to', icon, label: l, run: () => go(v)}));
+  allSvcs().forEach(s => items.push({g: 'Services', icon: 'services', label: s.name, hint: s.cluster, dot: STATE_META[s.state].color, run: () => go('service', {cluster: s.cluster, service: s.name, tab: 'overview'})}));
+  clusters().forEach(c => items.push({g: 'Clusters', icon: 'clusters', label: c.name, hint: c.region, run: () => go('cluster', {cluster: c.name})}));
+  allSvcs().forEach(s => s.tasks.slice(0, 2).forEach(t => items.push({g: 'Tasks', icon: 'tasks', label: t.short, hint: s.name, run: () => go('task', {cluster: s.cluster, service: s.name, task: t.id})})));
+  PROFILES.filter(p => p.id !== S.profile).forEach(p => items.push({g: 'Actions', icon: 'user', label: `Switch profile to ${p.id}`, run: () => switchProfile(p.id)}));
+  items.push({g: 'Actions', icon: 'moon', label: 'Toggle theme', run: toggleTheme});
+  items.push({g: 'Actions', icon: 'refresh', label: 'Refresh now', run: doRefresh});
+  return items;
+}
+function openPalette() {
+  closeMenu();
+  const items = paletteItems();
+  layer.innerHTML = `<div class="overlay" data-action="overlay"><div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+    <input id="palInput" placeholder="Search services, clusters, tasks, actions" autocomplete="off"><div class="list" id="palList"></div></div></div>`;
+  const inp = $('#palInput'), list = $('#palList');
+  let shown = [], sel = 0;
+  const draw = () => {
+    const q = inp.value.toLowerCase().trim();
+    shown = items.filter(it => !q || (it.label + ' ' + (it.hint || '')).toLowerCase().includes(q)).slice(0, 40);
+    sel = Math.min(sel, Math.max(0, shown.length - 1));
+    let h = '', g = '';
+    shown.forEach((it, i) => {
+      if (it.g !== g) { g = it.g; h += `<div class="grp">${g}</div>`; }
+      h += `<div class="item ${i === sel ? 'on' : ''}" data-i="${i}">${it.dot ? `<span class="sdot" style="width:7px;height:7px;border-radius:50%;background:${it.dot}"></span>` : ''}${ic(it.icon)}<span>${esc(it.label)}</span>${it.hint ? `<span class="hint mono">${esc(it.hint)}</span>` : ''}</div>`;
+    });
+    list.innerHTML = h || '<div class="empty">No results. Try a service name, such as orders-api.</div>';
+    list.querySelector('.item.on')?.scrollIntoView({block: 'nearest'});
+  };
+  const run = i => { const it = shown[i]; if (it) { closeDialog(); it.run(); } };
+  inp.addEventListener('input', () => { sel = 0; draw(); });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { sel = Math.min(shown.length - 1, sel + 1); draw(); e.preventDefault(); }
+    if (e.key === 'ArrowUp') { sel = Math.max(0, sel - 1); draw(); e.preventDefault(); }
+    if (e.key === 'Enter') run(sel);
+  });
+  list.addEventListener('click', e => { const it = e.target.closest('.item'); if (it) run(+it.dataset.i); });
+  list.addEventListener('mousemove', e => { const it = e.target.closest('.item'); if (it && +it.dataset.i !== sel) { sel = +it.dataset.i; list.querySelectorAll('.item').forEach(x => x.classList.toggle('on', +x.dataset.i === sel)); } });
+  draw(); inp.focus();
+}
+
+/* ---------- Helpers for actions ---------- */
+function switchProfile(id) {
+  S.profile = id; S.region = prof().regions[0];
+  S.view = 'overview'; S.cluster = S.service = S.task = null; S.logScope = 'all';
+  seedLogs(); closeMenu();
+  toast('info', `Switched to ${id}`, `Account ${prof().account} · ${prof().auth}`);
+  render();
+}
+function setRegion(reg) {
+  if (reg === S.region) return;
+  S.region = reg; S.view = 'overview'; S.cluster = S.service = S.task = null; S.logScope = 'all';
+  seedLogs(); closeMenu(); render();
+}
+function applyTheme(v) {
+  if (v === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = v;
+  try { localStorage.setItem('ecsdesk-theme', v); } catch (e) {}
+}
+function toggleTheme() {
+  const dark = document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+  applyTheme(dark ? 'light' : 'dark'); render(true);
+}
+function doRefresh() {
+  S.polledAt = Date.now(); S.apiCalls = 30 + Math.floor(Math.random() * 20);
+  render(true); $('#pulse')?.classList.add('flash');
+  toast('ok', 'Refreshed', `${allSvcs().length} services in ${S.region}.`);
+}
+function taskFromEl(el) {
+  const s = findSvc(el.dataset.cluster, el.dataset.service);
+  return {s, t: s && [...s.tasks, ...s.stopped].find(x => x.id === el.dataset.task)};
+}
+
+/* ---------- Event handling ---------- */
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-action]');
+  if (menuEl && !e.target.closest('.menu') && !(el && /menu$/.test(el.dataset.action))) closeMenu();
+  if (!el) return;
+  const a = el.dataset.action, d = el.dataset;
+  switch (a) {
+    case 'overlay': if (e.target === el) closeDialog(); break;
+    case 'close-dialog': closeDialog(); break;
+    case 'nav': go(d.view, d.view === 'tasks' ? {taskState: 'running'} : {}); break;
+    case 'palette': openPalette(); break;
+    case 'theme': toggleTheme(); break;
+    case 'set-theme': applyTheme(d.v); render(true); break;
+    case 'refresh': doRefresh(); break;
+    case 'set-region': setRegion(d.region); break;
+    case 'tree-cluster':
+      if (S.open.has(d.cluster) && S.view === 'cluster' && S.cluster === d.cluster) S.open.delete(d.cluster); else S.open.add(d.cluster);
+      go('cluster', {cluster: d.cluster}); break;
+    case 'open-cluster': go('cluster', {cluster: d.cluster}); break;
+    case 'open-service': go('service', {cluster: d.cluster, service: d.service, tab: d.tab || 'overview', taskState: 'running', logFilter: '', logLevel: 'all'}); break;
+    case 'open-task': if (e.target.closest('[data-action="task-menu"]')) break; go('task', {cluster: d.cluster, service: d.service, task: d.task}); break;
+    case 'tab': S.tab = d.tab; S.taskState = 'running'; render(true); break;
+    case 'svc-state': S.svcState = d.v; render(true); break;
+    case 'task-state': S.taskState = d.v; render(true); break;
+    case 'log-level': S.logLevel = d.v; render(true); break;
+    case 'log-pause': S.logsPaused = !S.logsPaused; render(true); break;
+    case 'range': S.range = d.v; render(true); break;
+    case 'poll-f': S.pollFocused = d.v; render(true); toast('ok', `Focused view refreshes every ${d.v}`); break;
+    case 'poll-b': S.pollBg = d.v; render(true); toast('ok', `Background views refresh every ${d.v}`); break;
+    case 'telemetry': S.telemetry = !S.telemetry; render(true); break;
+    case 'confirm-toggle': S.confirmProd = !S.confirmProd; render(true); break;
+    case 'ro-toggle': S.readOnly[d.profile] = !S.readOnly[d.profile]; render(true); toast('info', `${d.profile} is ${S.readOnly[d.profile] ? 'read-only' : 'allowed to run actions'}`); break;
+    case 'ro-off':
+      confirmAction({title: `Allow actions on ${S.profile}?`, body: 'Deploy, scale, stop, and exec will work for this profile until you restart the app.', cta: 'Allow actions', onOk: () => { S.readOnly[S.profile] = false; render(true); toast('warn', `Actions allowed on ${S.profile}`, 'Production actions still ask you to confirm.'); }});
+      break;
+    case 'profile-menu': {
+      openMenu(el, `<div class="mh">AWS profiles</div>${PROFILES.map(p => `<button class="mi" data-action="pick-profile" data-profile="${p.id}"><span class="env-dot ${p.prod ? 'prod' : ''}"></span><span>${p.id}</span><span class="hint mono">${p.account}</span>${p.id === S.profile ? ic('check') : ''}</button>`).join('')}
+        <div class="sep"></div><button class="mi" data-action="ro-toggle" data-profile="${S.profile}">${ic('lock')}Read-only for ${S.profile}<span class="hint">${isRO() ? 'On' : 'Off'}</span></button>
+        <button class="mi" data-action="sso-login">${ic('user')}Refresh SSO login</button><button class="mi" data-action="nav" data-view="settings">${ic('settings')}Manage profiles</button>`);
+      break;
+    }
+    case 'region-menu':
+      openMenu(el, `<div class="mh">Regions in ${S.profile}</div>${prof().regions.map(r => `<button class="mi" data-action="set-region" data-region="${r}"><span class="mono">${r}</span>${r === S.region ? `<span class="hint">${ic('check')}</span>` : ''}</button>`).join('')}`);
+      break;
+    case 'pick-profile': switchProfile(d.profile); break;
+    case 'sso-login': closeMenu(); toast('info', 'SSO session refreshed', 'Token valid for 8 hours.'); break;
+    case 'svc-menu': {
+      e.stopPropagation();
+      const s = findSvc(d.cluster, d.service);
+      const lock = isRO() ? ic('lock') : '';
+      openMenu(el, `<div class="mh">${s.name}</div>
+        <button class="mi" data-action="open-service" data-cluster="${s.cluster}" data-service="${s.name}">${ic('services')}Open</button>
+        <button class="mi" data-action="open-service" data-cluster="${s.cluster}" data-service="${s.name}" data-tab="logs">${ic('logs')}View logs</button>
+        <div class="sep"></div>
+        <button class="mi" data-action="deploy" data-cluster="${s.cluster}" data-service="${s.name}">${lock || ic('rocket')}Force new deployment</button>
+        <button class="mi" data-action="scale" data-cluster="${s.cluster}" data-service="${s.name}">${lock || ic('scale')}Scale</button>
+        <button class="mi" data-action="rollback" data-cluster="${s.cluster}" data-service="${s.name}">${lock || ic('undo')}Roll back to :${s.rev - 1}</button>
+        <div class="sep"></div>
+        <button class="mi" data-action="copy" data-text="arn:aws:ecs:${S.region}:${prof().account.replace(/-/g, '')}:service/${s.cluster}/${s.name}">${ic('copy')}Copy ARN</button>`);
+      break;
+    }
+    case 'task-menu': {
+      e.stopPropagation();
+      const {s, t} = taskFromEl(el);
+      const lock = isRO() ? ic('lock') : '';
+      openMenu(el, `<div class="mh mono">${t.short}</div>
+        <button class="mi" data-action="open-task" data-cluster="${s.cluster}" data-service="${s.name}" data-task="${t.id}">${ic('tasks')}Open</button>
+        ${t.status !== 'STOPPED' ? `<button class="mi" data-action="exec" data-cluster="${s.cluster}" data-service="${s.name}" data-task="${t.id}" data-container="${s.name}">${lock || ic('term')}Exec into ${s.name}</button>` : ''}
+        <button class="mi" data-action="open-service" data-cluster="${s.cluster}" data-service="${s.name}" data-tab="logs">${ic('logs')}View logs</button>
+        ${t.status !== 'STOPPED' ? `<div class="sep"></div><button class="mi danger" data-action="stop-task" data-cluster="${s.cluster}" data-service="${s.name}" data-task="${t.id}">${lock || ic('stop')}Stop task</button>` : ''}`);
+      break;
+    }
+    case 'deploy': {
+      closeMenu(); if (!guard()) break;
+      const s = findSvc(d.cluster, d.service);
+      confirmAction({title: `Force a new deployment of ${s.name}?`, body: `ECS starts ${s.desired} new tasks with revision ${s.rev}, then stops the old tasks.`, cta: 'Deploy', svc: s,
+        onOk: () => { startRollout(s, s.rev, 'has started a new deployment (forced).'); toast('info', `Deploying ${s.name}`, `Revision ${s.rev} · ${s.desired} tasks`); }});
+      break;
+    }
+    case 'rollback': {
+      closeMenu(); if (!guard()) break;
+      const s = findSvc(d.cluster, d.service);
+      confirmAction({title: `Roll back ${s.name} to revision ${s.rev - 1}?`, body: `ECS replaces the ${s.running} running tasks of revision ${s.rev} with revision ${s.rev - 1}.`, cta: 'Roll back', danger: true, svc: s,
+        onOk: () => { startRollout(s, s.rev - 1, `updated the task definition to ${s.name}:${s.rev - 1} (rollback).`); toast('warn', `Rolling back ${s.name}`, `Target revision ${s.rev}`); }});
+      break;
+    }
+    case 'scale': {
+      closeMenu(); if (!guard()) break;
+      const s = findSvc(d.cluster, d.service);
+      openDialog(`<h2>Scale ${esc(s.name)}</h2><p>Set the desired task count. It is ${s.desired} now.</p>
+        <label for="scaleInput">Desired tasks</label>
+        <div class="stepper"><button class="btn" id="scMinus" aria-label="Decrease">−</button><input class="input" id="scaleInput" type="number" min="0" max="50" value="${s.desired}"><button class="btn" id="scPlus" aria-label="Increase">+</button>
+        <span class="muted num" id="scCost" style="margin-left:6px"></span></div>
+        <div class="foot"><button class="btn" data-action="close-dialog">Cancel</button><button class="btn primary" id="scOk">Save</button></div>`, dlg => {
+        const inp = dlg.querySelector('#scaleInput'), cost = dlg.querySelector('#scCost');
+        const upd = () => { const v = Math.max(0, Math.min(50, +inp.value || 0)); cost.textContent = `${(v * s.cpu / 1024).toFixed(1)} vCPU · ${(v * s.mem / 1024).toFixed(0)} GB total`; };
+        dlg.querySelector('#scMinus').onclick = () => { inp.value = Math.max(0, +inp.value - 1); upd(); };
+        dlg.querySelector('#scPlus').onclick = () => { inp.value = Math.min(50, +inp.value + 1); upd(); };
+        inp.oninput = upd; upd(); inp.focus(); inp.select();
+        dlg.querySelector('#scOk').onclick = () => {
+          const v = Math.max(0, Math.min(50, +inp.value || 0)); closeDialog();
+          if (v === s.desired) return;
+          const prev = s.desired; s.desired = v; s.deployments[0].desired = v;
+          s.events.unshift({t: Date.now(), m: `(service ${s.name}) desired count changed from ${prev} to ${v}.`});
+          if (v < prev) { s.tasks = s.tasks.slice(0, v); s.running = Math.min(s.running, v); s.deployments[0].running = Math.min(s.deployments[0].running, v); }
+          else { const r = rng(s.name + v + Date.now()); for (let i = prev; i < v; i++) s.tasks.push(makeTask(s, r, {started: Date.now()})); s.running = Math.min(s.desired, s.running + (v - prev)); s.deployments[0].running = s.running; }
+          toast('ok', `Scaled ${s.name} to ${v} tasks`, `Was ${prev}.`); render(true);
+        };
+      });
+      break;
+    }
+    case 'stop-task': {
+      closeMenu(); if (!guard()) break;
+      const {s, t} = taskFromEl(el);
+      confirmAction({title: `Stop task ${t.short}?`, body: `ECS stops this task. The ${s.name} service then starts a new task to keep ${s.desired} running.`, cta: 'Stop task', danger: true, svc: s,
+        onOk: () => {
+          t.status = 'STOPPING'; render(true);
+          setTimeout(() => {
+            t.status = 'STOPPED'; t.stopReason = 'Task stopped by user from ECS Desk.'; t.exitCode = 0; t.containers.forEach(c => { c.status = 'STOPPED'; c.exitCode = 0; });
+            s.tasks = s.tasks.filter(x => x !== t); s.stopped.unshift(t);
+            const nt = makeTask(s, rng(t.id + 'n'), {started: Date.now()}); s.tasks.push(nt);
+            s.events.unshift({t: Date.now(), m: `(service ${s.name}) has started 1 tasks: (task ${nt.short}).`}, {t: Date.now() - 1, m: `(service ${s.name}) stopped 1 running tasks: (task ${t.short}).`});
+            toast('ok', `Stopped ${t.short}`, `Started ${nt.short} to replace it.`); render(true);
+          }, 1400);
+        }});
+      break;
+    }
+    case 'exec': {
+      closeMenu(); if (!guard()) break;
+      const {s, t} = taskFromEl(el);
+      if (s.env === 'prod' && s.name === 'web-frontend') { toast('crit', 'Exec is off for web-frontend', 'Set enableExecuteCommand to true on the service, then deploy again.'); break; }
+      openTerm(s, t, d.container || s.name);
+      break;
+    }
+    case 'scale-mem': toast('info', 'Opens the task definition editor', 'This comes after v1. For now, copy the JSON and register a new revision.'); break;
+    case 'term-toggle':
+      if (S.term) { S.term = null; renderTerm(); renderRail(); }
+      else {
+        const s = allSvcs().find(x => x.name === 'orders-api') || allSvcs()[0];
+        if (!guard()) break;
+        openTerm(s, s.tasks[0], s.name);
+      }
+      break;
+    case 'term-close': S.term = null; renderTerm(); renderRail(); break;
+    case 'copy': {
+      closeMenu();
+      const txt = d.text;
+      const done = () => toast('ok', 'Copied to clipboard');
+      try { navigator.clipboard.writeText(txt).then(done, () => toast('warn', 'Copy failed', 'Your viewer blocks clipboard access.')); } catch (err) { toast('warn', 'Copy failed', 'Your viewer blocks clipboard access.'); }
+      break;
+    }
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.target.closest?.('.attn') && e.key === 'Enter') e.target.click();
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); }
+  if (e.ctrlKey && e.key === '`') { e.preventDefault(); document.querySelector('[data-action="term-toggle"]').click(); }
+  if (e.key === 'Escape') { if (menuEl) closeMenu(); else if (layer.innerHTML) closeDialog(); }
+});
+document.addEventListener('input', e => {
+  const id = e.target.id;
+  if (id === 'treeFilter') { S.treeFilter = e.target.value; renderTree(); }
+  if (id === 'svcFilter' || id === 'taskFilter' || id === 'logFilter') {
+    const key = {svcFilter: 'svcFilter', taskFilter: 'taskFilter', logFilter: 'logFilter'}[id];
+    S[key] = e.target.value; const pos = e.target.selectionStart;
+    render(true); const n = document.getElementById(id); n.focus(); n.setSelectionRange(pos, pos);
+  }
+});
+document.addEventListener('change', e => { if (e.target.id === 'logScope') { S.logScope = e.target.value; render(true); } });
+document.addEventListener('mousemove', e => {
+  const c = e.target.closest?.('.chart'); if (!c) return;
+  const svg = c.querySelector('svg'), tt = c.querySelector('.tt'), hov = svg.querySelector('.hov'), info = CHARTS[c.dataset.chart]; if (!info) return;
+  const r = svg.getBoundingClientRect(), sx = 600 / r.width;
+  const vx = (e.clientX - r.left) * sx, n = info.data.length;
+  const i = Math.round((vx - 36) / (600 - 48) * (n - 1));
+  if (i < 0 || i >= n) { tt.style.opacity = 0; hov.setAttribute('opacity', 0); return; }
+  const px = 36 + i / (n - 1) * (600 - 48);
+  hov.setAttribute('x1', px); hov.setAttribute('x2', px); hov.setAttribute('opacity', 1);
+  const mins = {'1h': 60, '6h': 360, '24h': 1440}[S.range] * (n - 1 - i) / (n - 1);
+  tt.textContent = `${info.data[i]}${info.unit} · ${mins < 1 ? 'now' : '-' + Math.round(mins) + ' min'}`;
+  tt.style.left = (px / sx) + 'px'; tt.style.opacity = 1;
+});
+document.addEventListener('mouseout', e => { const c = e.target.closest?.('.chart'); if (c && !c.contains(e.relatedTarget)) { c.querySelector('.tt').style.opacity = 0; c.querySelector('.hov').setAttribute('opacity', 0); } });
+
+/* ---------- Live loop ---------- */
+let tick = 0;
+setInterval(() => {
+  tick++;
+  const pollEvery = parseInt(S.pollFocused, 10);
+  if (tick % pollEvery === 0) { S.polledAt = Date.now(); S.apiCalls = Math.max(24, Math.min(70, S.apiCalls + Math.round((Math.random() - .5) * 6))); }
+  renderStatus();
+  if (tick % pollEvery === 0) $('#pulse')?.classList.add('flash');
+  if (!S.logsPaused) {
+    const r = Math.random; const svcs = allSvcs();
+    const s = svcs[Math.floor(r() * svcs.length)];
+    logBuf.push(genLog(s, Date.now(), r)); if (logBuf.length > 600) logBuf.shift();
+    const lv = $('#logview');
+    if (lv && document.activeElement?.id !== 'logFilter') {
+      const atBottom = lv.scrollHeight - lv.scrollTop - lv.clientHeight < 40;
+      const scope = S.view === 'service' ? [S.service] : (S.logScope === 'all' ? svcs.map(x => x.name) : [S.logScope]);
+      const l = logBuf[logBuf.length - 1];
+      if (scope.includes(l.svc) && (S.logLevel === 'all' || S.logLevel === l.lv) && (!S.logFilter || l.msg.toLowerCase().includes(S.logFilter.toLowerCase()))) {
+        lv.querySelector('.empty-state')?.remove();
+        lv.insertAdjacentHTML('beforeend', `<div class="logline new"><span class="ts">${hms(l.t)}</span><span class="lv-${l.lv}">${l.lv}</span><span class="src">${l.svc}/${l.task}</span><span>${esc(l.msg)}</span></div>`);
+        if (atBottom) lv.scrollTop = lv.scrollHeight;
+      }
+    }
+  }
+}, 1000);
+
+/* ---------- Boot ---------- */
+if (theme && theme !== 'system') document.documentElement.dataset.theme = theme;
+seedLogs();
+render();
+})();
+</script>
+</body>
+</html>
