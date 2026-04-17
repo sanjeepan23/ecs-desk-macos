@@ -1,0 +1,44 @@
+[package]
+name = "ecs-desk"
+version = "0.1.0"
+description = "Desktop app for AWS ECS"
+authors = ["sanjeepan23"]
+license = "Apache-2.0"
+repository = "https://github.com/sanjeepan23/ecs-desk"
+edition = "2021"
+rust-version = "1.88"
+
+[lib]
+name = "ecs_desk_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.11.3", features = [] }
+tauri-plugin-log = "2"
+aws-config = { version = "1.12.0", features = ["behavior-version-latest", "sso"] }
+aws-sdk-ecs = "1.150.0"
+aws-sdk-cloudwatchlogs = "1.156.0"
+aws-sdk-cloudwatch = "1.134.0"
+aws-sdk-sts = "1.119.0"
+aws-smithy-types = "1.8.1"
+tokio = { version = "1.53.1", features = ["full"] }
+anyhow = "1.0.104"
+thiserror = "2.0.21"
+futures = "0.3.34"
+chrono = { version = "0.4.45", features = ["serde"] }
+dirs = "7.0.0"
+tauri-plugin-opener = "2.5.5"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+portable-pty = "0.9.0"
+base64 = "0.23.1"
+which = "8.0.6"
+tauri-plugin-notification = "2"
+
+[dev-dependencies]
+tempfile = "3.27.0"
