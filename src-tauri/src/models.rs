@@ -100,3 +100,53 @@ pub struct ClusterSummary {
     pub container_insights: bool,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ServiceHealth {
+    Healthy,
+    Deploying,
+    Degraded,
+    Failing,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Deployment {
+    pub id: String,
+    /// "PRIMARY" | "ACTIVE" | "INACTIVE"
+    pub status: String,
+    pub task_definition: String,
+    pub desired: i32,
+    pub running: i32,
+    pub pending: i32,
+    pub failed: i32,
+    /// "IN_PROGRESS" | "COMPLETED" | "FAILED"
+    pub rollout_state: Option<String>,
+    pub rollout_reason: Option<String>,
+    /// Unix time in milliseconds.
+    pub created_at: Option<i64>,
+    pub updated_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceSummary {
+    pub arn: String,
+    pub name: String,
+    pub cluster_name: String,
+    pub status: String,
+    pub desired: i32,
+    pub running: i32,
+    pub pending: i32,
+    /// Full task definition ARN.
+    pub task_definition: String,
+    /// "family:revision"
+    pub task_definition_short: String,
+    pub launch_type: Option<String>,
+    pub health: ServiceHealth,
+    pub deployments: Vec<Deployment>,
+    pub created_at: Option<i64>,
+    pub enable_execute_command: bool,
+    pub load_balancers: Vec<String>,
+}
+
