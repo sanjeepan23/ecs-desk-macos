@@ -258,3 +258,53 @@ pub struct TaskRef {
     pub task_arn: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogTarget {
+    pub group: String,
+    pub stream_prefix: Option<String>,
+    pub container: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogLine {
+    pub timestamp: i64,
+    /// "DEBUG" | "INFO" | "WARN" | "ERROR", guessed from the message.
+    pub level: String,
+    pub message: String,
+    pub group: String,
+    pub stream: String,
+}
+
+/// Payload of the `logs://lines` event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogBatch {
+    pub session_id: String,
+    pub lines: Vec<LogLine>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetricPoint {
+    pub t: i64,
+    pub v: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceMetrics {
+    pub cpu: Vec<MetricPoint>,
+    pub memory: Vec<MetricPoint>,
+    pub period_secs: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecCheck {
+    pub ok: bool,
+    pub problems: Vec<String>,
+    pub plugin_path: Option<String>,
+}
+
