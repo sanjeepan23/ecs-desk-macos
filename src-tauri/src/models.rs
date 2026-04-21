@@ -150,3 +150,58 @@ pub struct ServiceSummary {
     pub load_balancers: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceEvent {
+    pub id: String,
+    pub created_at: Option<i64>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceDetail {
+    pub service: ServiceSummary,
+    pub events: Vec<ServiceEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Container {
+    pub name: String,
+    pub image: Option<String>,
+    pub last_status: Option<String>,
+    pub health_status: Option<String>,
+    pub exit_code: Option<i32>,
+    pub reason: Option<String>,
+    pub runtime_id: Option<String>,
+    /// "RUNNING" | "STOPPED" | ... for the ECS Exec agent, if present.
+    pub exec_agent_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Task {
+    pub arn: String,
+    pub id: String,
+    pub cluster_name: String,
+    /// From the task group "service:<name>", if any.
+    pub service_name: Option<String>,
+    pub last_status: String,
+    pub desired_status: String,
+    pub health_status: Option<String>,
+    pub task_definition: String,
+    pub revision: Option<i32>,
+    pub availability_zone: Option<String>,
+    pub private_ip: Option<String>,
+    pub cpu: Option<String>,
+    pub memory: Option<String>,
+    pub started_at: Option<i64>,
+    pub stopped_at: Option<i64>,
+    pub stop_reason: Option<String>,
+    pub stop_code: Option<String>,
+    pub launch_type: Option<String>,
+    pub enable_execute_command: bool,
+    pub containers: Vec<Container>,
+}
+
