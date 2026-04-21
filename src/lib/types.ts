@@ -90,3 +90,54 @@ export interface ServiceDetail {
   events: ServiceEvent[]
 }
 
+export interface Container {
+  name: string
+  image: string | null
+  lastStatus: string | null
+  healthStatus: string | null
+  exitCode: number | null
+  reason: string | null
+  runtimeId: string | null
+  execAgentStatus: string | null
+}
+
+export interface Task {
+  arn: string
+  id: string
+  clusterName: string
+  serviceName: string | null
+  lastStatus: string
+  desiredStatus: string
+  healthStatus: string | null
+  taskDefinition: string
+  revision: number | null
+  availabilityZone: string | null
+  privateIp: string | null
+  cpu: string | null
+  memory: string | null
+  startedAt: number | null
+  stoppedAt: number | null
+  stopReason: string | null
+  stopCode: string | null
+  launchType: string | null
+  enableExecuteCommand: boolean
+  containers: Container[]
+}
+
+export interface Focus {
+  profile: string
+  region: string
+  cluster: string | null
+  service: string | null
+}
+
+export interface EcsUpdate {
+  profile: string
+  region: string
+  polledAt: number
+  clusters: ClusterSummary[] | null
+  services: ServiceSummary[] | null
+  serviceDetail: ServiceDetail | null
+  tasks: Task[] | null
+}
+
