@@ -357,3 +357,70 @@ pub enum StopCategory {
     Other,
 }
 
+/// Stopped tasks of one service that share a cause.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopGroup {
+    pub category: StopCategory,
+    /// Short label, for example "Out of memory".
+    pub title: String,
+    pub count: u32,
+    pub last_seen: Option<i64>,
+    /// Newest first, at most 20.
+    pub task_arns: Vec<String>,
+    pub exit_codes: Vec<i32>,
+    pub containers: Vec<String>,
+    pub sample_reason: String,
+    /// One or two sentences that say what to check or change.
+    pub advice: String,
+    /// True for normal stops, such as a deployment or scale-in.
+    pub expected: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoppedAnalysis {
+    pub total: u32,
+    /// Problem groups first, then expected groups; each by count, descending.
+    pub groups: Vec<StopGroup>,
+    /// True when unexpected stops repeat fast enough to look like a crash loop.
+    pub crash_loop: bool,
+    pub analyzed_at: i64,
+}
+
+// ---------- Deployment watch ----------
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum WatchPhase {
+    InProgress,
+    Completed,
+    Failed,
+    RolledBack,
+    TimedOut,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeployWatch {
+    /// "<profile>/<region>/<cluster>/<service>"
+    pub id: String,
+    pub target: ServiceRef,
+    pub deployment_id: Option<String>,
+    pub task_definition: String,
+    pub phase: WatchPhase,
+    pub desired: i32,
+    pub running: i32,
+    pub pending: i32,
+    pub failed: i32,
+    pub started_at: i64,
+    pub updated_at: i64,
+    pub finished_at: Option<i64>,
+    /// Service events since the watch started, newest first.
+    pub events: Vec<ServiceEvent>,
+    /// Tasks of the watched deployment that stopped, newest first, at most 10.
+    pub failed_tasks: Vec<Task>,
+    pub message: Option<String>,
+}
+
