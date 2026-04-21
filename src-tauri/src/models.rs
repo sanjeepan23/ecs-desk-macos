@@ -308,3 +308,52 @@ pub struct ExecCheck {
     pub plugin_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecStart {
+    pub session_id: String,
+    pub profile: String,
+    pub region: String,
+    pub cluster: String,
+    pub task_arn: String,
+    pub container: String,
+    pub command: Option<String>,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+/// Payload of the `exec://output` event. `data` is UTF-8 text from the PTY.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecOutput {
+    pub session_id: String,
+    pub data: String,
+}
+
+/// Payload of the `exec://exit` event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecExit {
+    pub session_id: String,
+    pub code: Option<i32>,
+}
+
+// ---------- Stopped-task analysis ----------
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub enum StopCategory {
+    OutOfMemory,
+    HealthCheck,
+    ImagePull,
+    Secrets,
+    EssentialExit,
+    Capacity,
+    Network,
+    SpotInterruption,
+    Deployment,
+    ScaleIn,
+    UserStopped,
+    Other,
+}
+
