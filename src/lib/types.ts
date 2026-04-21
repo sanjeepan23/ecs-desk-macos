@@ -141,3 +141,51 @@ export interface EcsUpdate {
   tasks: Task[] | null
 }
 
+export interface PollStatus {
+  polledAt: number | null
+  apiCallsPerMin: number
+  budgetPct: number
+  throttled: boolean
+  lastError: string | null
+}
+
+export interface ServiceRef {
+  profile: string
+  region: string
+  cluster: string
+  service: string
+}
+
+export interface TaskRef {
+  profile: string
+  region: string
+  cluster: string
+  taskArn: string
+}
+
+export interface LogTarget {
+  group: string
+  streamPrefix: string | null
+  container: string | null
+}
+
+export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+
+export interface LogLine {
+  timestamp: number
+  level: LogLevel | string
+  message: string
+  group: string
+  stream: string
+}
+
+export interface LogBatch {
+  sessionId: string
+  lines: LogLine[]
+}
+
+export interface MetricPoint {
+  t: number
+  v: number
+}
+
