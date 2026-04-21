@@ -205,3 +205,56 @@ pub struct Task {
     pub containers: Vec<Container>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct Focus {
+    pub profile: String,
+    pub region: String,
+    pub cluster: Option<String>,
+    pub service: Option<String>,
+}
+
+/// Payload of the `ecs://update` event. Fields are `None` when this poll did not fetch them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EcsUpdate {
+    pub profile: String,
+    pub region: String,
+    pub polled_at: i64,
+    pub clusters: Option<Vec<ClusterSummary>>,
+    /// Every service in every cluster of this profile and region.
+    pub services: Option<Vec<ServiceSummary>>,
+    pub service_detail: Option<ServiceDetail>,
+    /// Tasks of the focused service.
+    pub tasks: Option<Vec<Task>>,
+}
+
+/// Payload of the `ecs://poll-status` event and the `poll_status` command.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PollStatus {
+    pub polled_at: Option<i64>,
+    pub api_calls_per_min: u32,
+    pub budget_pct: u32,
+    pub throttled: bool,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceRef {
+    pub profile: String,
+    pub region: String,
+    pub cluster: String,
+    pub service: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRef {
+    pub profile: String,
+    pub region: String,
+    pub cluster: String,
+    pub task_arn: String,
+}
+
