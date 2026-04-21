@@ -424,3 +424,76 @@ pub struct DeployWatch {
     pub message: Option<String>,
 }
 
+// ---------- Fleet (all accounts) ----------
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum FleetStatus {
+    Pending,
+    Scanning,
+    Ok,
+    Auth,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FleetEntry {
+    pub profile: String,
+    pub region: String,
+    pub status: FleetStatus,
+    pub message: Option<String>,
+    pub is_prod: bool,
+    pub clusters: u32,
+    pub services: u32,
+    pub running_tasks: i32,
+    pub desired_tasks: i32,
+    /// Services that are not healthy.
+    pub attention: Vec<ServiceSummary>,
+    pub scanned_at: Option<i64>,
+}
+
+pub mod events {
+    pub const ECS_UPDATE: &str = "ecs://update";
+    pub const POLL_STATUS: &str = "ecs://poll-status";
+    pub const LOG_LINES: &str = "logs://lines";
+    pub const EXEC_OUTPUT: &str = "exec://output";
+    pub const EXEC_EXIT: &str = "exec://exit";
+    /// Sent with no payload when the profile list changes, for example after prod detection.
+    pub const PROFILES_CHANGED: &str = "profiles://changed";
+    pub const DEPLOY_WATCH: &str = "deploy://watch";
+    pub const FLEET_ENTRY: &str = "fleet://entry";
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prod_profiles_start_read_only() {
+        let s = Settings::default();
+        assert!(s.is_read_only("demo-prod"));
+        assert!(s.is_read_only("PROD"));
+        assert!(!s.is_read_only("demo-staging"));
+    }
+
+    #[test]
+    fn detected_prod_profiles_start_read_only() {
+        let mut s = Settings::default();
+        assert!(!s.is_read_only("bitwize"));
+        s.detected_prod.insert("bitwize".into());
+        assert!(s.is_prod("bitwize"));
+        assert!(s.is_read_only("bitwize"));
+        s.read_only.insert("bitwize".into(), false);
+        assert!(!s.is_read_only("bitwize"));
+    }
+
+    #[test]
+    fn explicit_choice_overrides_default() {
+        let mut s = Settings::default();
+        s.read_only.insert("demo-prod".into(), false);
+        s.read_only.insert("dev".into(), true);
+        assert!(!s.is_read_only("demo-prod"));
+        assert!(s.is_read_only("dev"));
+    }
+}
