@@ -43,3 +43,50 @@ export interface ClusterSummary {
   containerInsights: boolean
 }
 
+export type ServiceHealth = 'healthy' | 'deploying' | 'degraded' | 'failing'
+
+export interface Deployment {
+  id: string
+  status: 'PRIMARY' | 'ACTIVE' | 'INACTIVE' | string
+  taskDefinition: string
+  desired: number
+  running: number
+  pending: number
+  failed: number
+  rolloutState: 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | string | null
+  rolloutReason: string | null
+  /** Unix ms */
+  createdAt: number | null
+  updatedAt: number | null
+}
+
+export interface ServiceSummary {
+  arn: string
+  name: string
+  clusterName: string
+  status: string
+  desired: number
+  running: number
+  pending: number
+  taskDefinition: string
+  /** "family:revision" */
+  taskDefinitionShort: string
+  launchType: string | null
+  health: ServiceHealth
+  deployments: Deployment[]
+  createdAt: number | null
+  enableExecuteCommand: boolean
+  loadBalancers: string[]
+}
+
+export interface ServiceEvent {
+  id: string
+  createdAt: number | null
+  message: string
+}
+
+export interface ServiceDetail {
+  service: ServiceSummary
+  events: ServiceEvent[]
+}
+
