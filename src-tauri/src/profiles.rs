@@ -46,3 +46,51 @@ pub struct RawProfile {
     pub has_static_keys: bool,
 }
 
+/// Merges profiles from the config and credentials file contents. The result is sorted by name.
+pub fn parse_profiles(config: &str, credentials: &str) -> Vec<RawProfile> {
+    let mut map: BTreeMap<String, RawProfile> = BTreeMap::new();
+    for (header, kv) in parse_ini(config) {
+        let name = if header == "default" {
+            header
+        } else if let Some(n) = header.strip_prefix("profile ") {
+            n.trim().to_owned()
+        } else {
+            // "sso-session x", "services x", and other sections are not profiles.
+            continue;
+        };
+        let p = map.entry(name.clone()).or_insert_with(|| RawProfile { name, ..Default::default() });
+        p.config.extend(kv);
+    }
+    for (name, kv) in parse_ini(credentials) {
+        let p = map.entry(name.clone()).or_insert_with(|| RawProfile { name, ..Default::default() });
+        if kv.contains_key("aws_access_key_id") {
+            p.has_static_keys = true;
+        }
+    }
+    map.into_values().collect()
+}
+
+pub fn auth_kind(p: &RawProfile) -> AuthKind {
+    let has = |k: &str| p.config.contains_key(k);
+    if has("sso_session") || has("sso_start_url") {
+        AuthKind::Sso
+    } else if has("role_arn") {
+        AuthKind::AssumeRole
+    } else if has("credential_process") {
+        AuthKind::Process
+    } else if p.has_static_keys || has("aws_access_key_id") {
+        AuthKind::Static
+    } else {
+        AuthKind::Unknown
+    }
+}
+
+pub fn account_id(p: &RawProfile) -> Option<String> {
+    if let Some(a) = p.config.get("sso_account_id") {
+        return Some(a.clone());
+    }
+    // arn:aws:iam::<account>:role/<name>
+    let arn = p.config.get("role_arn")?;
+    arn.split(':').nth(4).filter(|a| !a.is_empty()).map(str::to_owned)
+}
+
