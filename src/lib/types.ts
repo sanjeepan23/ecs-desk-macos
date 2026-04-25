@@ -241,3 +241,84 @@ export const EVENTS = {
   fleetEntry: 'fleet://entry',
 } as const
 
+// ---------- Stopped-task analysis ----------
+
+export type StopCategory =
+  | 'outOfMemory'
+  | 'healthCheck'
+  | 'imagePull'
+  | 'secrets'
+  | 'essentialExit'
+  | 'capacity'
+  | 'network'
+  | 'spotInterruption'
+  | 'deployment'
+  | 'scaleIn'
+  | 'userStopped'
+  | 'other'
+
+export interface StopGroup {
+  category: StopCategory
+  title: string
+  count: number
+  lastSeen: number | null
+  /** Newest first, at most 20. */
+  taskArns: string[]
+  exitCodes: number[]
+  containers: string[]
+  sampleReason: string
+  advice: string
+  /** True for normal stops, such as a deployment or scale-in. */
+  expected: boolean
+}
+
+export interface StoppedAnalysis {
+  total: number
+  /** Problem groups first, then expected groups. */
+  groups: StopGroup[]
+  crashLoop: boolean
+  analyzedAt: number
+}
+
+// ---------- Deployment watch ----------
+
+export type WatchPhase = 'inProgress' | 'completed' | 'failed' | 'rolledBack' | 'timedOut' | 'cancelled'
+
+export interface DeployWatch {
+  /** "<profile>/<region>/<cluster>/<service>" */
+  id: string
+  target: ServiceRef
+  deploymentId: string | null
+  taskDefinition: string
+  phase: WatchPhase
+  desired: number
+  running: number
+  pending: number
+  failed: number
+  startedAt: number
+  updatedAt: number
+  finishedAt: number | null
+  /** Newest first. */
+  events: ServiceEvent[]
+  /** Newest first, at most 10. */
+  failedTasks: Task[]
+  message: string | null
+}
+
+// ---------- Fleet (all accounts) ----------
+
+export type FleetStatus = 'pending' | 'scanning' | 'ok' | 'auth' | 'error'
+
+export interface FleetEntry {
+  profile: string
+  region: string
+  status: FleetStatus
+  message: string | null
+  isProd: boolean
+  clusters: number
+  services: number
+  runningTasks: number
+  desiredTasks: number
+  attention: ServiceSummary[]
+  scannedAt: number | null
+}
