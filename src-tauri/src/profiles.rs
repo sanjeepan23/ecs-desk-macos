@@ -94,3 +94,49 @@ pub fn account_id(p: &RawProfile) -> Option<String> {
     arn.split(':').nth(4).filter(|a| !a.is_empty()).map(str::to_owned)
 }
 
+pub fn to_profile(p: &RawProfile, settings: &Settings) -> Profile {
+    let region = p.config.get("region").cloned();
+    let regions = settings
+        .profile_regions
+        .get(&p.name)
+        .filter(|r| !r.is_empty())
+        .cloned()
+        .or_else(|| region.clone().map(|r| vec![r]))
+        .unwrap_or_else(|| vec!["us-east-1".to_owned()]);
+    Profile {
+        name: p.name.clone(),
+        account_id: account_id(p),
+        region,
+        regions,
+        auth_kind: auth_kind(p),
+        is_prod: settings.is_prod(&p.name),
+        read_only: settings.is_read_only(&p.name),
+    }
+}
+
+fn aws_file(env: &str, default: &str) -> Option<PathBuf> {
+    match std::env::var_os(env) {
+        Some(v) if !v.is_empty() => {
+            let s = PathBuf::from(&v);
+            match s.strip_prefix("~") {
+                Ok(rest) => dirs::home_dir().map(|h| h.join(rest)),
+                Err(_) => Some(s),
+            }
+        }
+        _ => dirs::home_dir().map(|h| h.join(".aws").join(default)),
+    }
+}
+
+/// Reads both files from disk. A missing file counts as empty.
+pub async fn read_raw_profiles() -> Vec<RawProfile> {
+    async fn read(p: Option<PathBuf>) -> String {
+        match p {
+            Some(p) => tokio::fs::read_to_string(p).await.unwrap_or_default(),
+            None => String::new(),
+        }
+    }
+    let config = read(aws_file("AWS_CONFIG_FILE", "config")).await;
+    let creds = read(aws_file("AWS_SHARED_CREDENTIALS_FILE", "credentials")).await;
+    parse_profiles(&config, &creds)
+}
+
