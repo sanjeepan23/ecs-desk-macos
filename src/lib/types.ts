@@ -189,3 +189,55 @@ export interface MetricPoint {
   v: number
 }
 
+export interface ServiceMetrics {
+  cpu: MetricPoint[]
+  memory: MetricPoint[]
+  periodSecs: number
+}
+
+export interface ExecCheck {
+  ok: boolean
+  problems: string[]
+  pluginPath: string | null
+}
+
+export interface ExecStart {
+  sessionId: string
+  profile: string
+  region: string
+  cluster: string
+  taskArn: string
+  container: string
+  command: string | null
+  cols: number
+  rows: number
+}
+
+export interface ExecOutput {
+  sessionId: string
+  data: string
+}
+
+export interface ExecExit {
+  sessionId: string
+  code: number | null
+}
+
+export type ErrorKind = 'auth' | 'throttled' | 'notFound' | 'readOnly' | 'invalid' | 'aws' | 'internal'
+
+export interface AppError {
+  kind: ErrorKind
+  message: string
+}
+
+export const EVENTS = {
+  ecsUpdate: 'ecs://update',
+  pollStatus: 'ecs://poll-status',
+  logLines: 'logs://lines',
+  execOutput: 'exec://output',
+  execExit: 'exec://exit',
+  profilesChanged: 'profiles://changed',
+  deployWatch: 'deploy://watch',
+  fleetEntry: 'fleet://entry',
+} as const
+
