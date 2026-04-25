@@ -140,3 +140,52 @@ pub async fn read_raw_profiles() -> Vec<RawProfile> {
     parse_profiles(&config, &creds)
 }
 
+#[tauri::command]
+pub async fn list_profiles(state: State<'_, AppState>) -> AppResult<Vec<Profile>> {
+    let raw = read_raw_profiles().await;
+    let settings = state.settings.read().await;
+    Ok(raw.iter().map(|p| to_profile(p, &settings)).collect())
+}
+
+#[tauri::command]
+pub async fn set_read_only(state: State<'_, AppState>, profile: String, value: bool) -> AppResult<Profile> {
+    let raw = read_raw_profiles()
+        .await
+        .into_iter()
+        .find(|p| p.name == profile)
+        .ok_or_else(|| AppError::new(ErrorKind::NotFound, format!("Profile {profile} not found.")))?;
+    let mut settings = state.settings.write().await;
+    let mut next = settings.clone();
+    next.read_only.insert(profile, value);
+    crate::cache::persist(state.db_path.clone(), next.clone()).await?;
+    *settings = next;
+    Ok(to_profile(&raw, &settings))
+}
+
+/// An app opened from the macOS Finder gets a short PATH, so also look in the usual install folders.
+const AWS_CLI_DIRS: [&str; 2] = ["/usr/local/bin", "/opt/homebrew/bin"];
+
+fn find_aws_cli() -> PathBuf {
+    which::which("aws")
+        .ok()
+        .or_else(|| AWS_CLI_DIRS.iter().map(|d| PathBuf::from(d).join("aws")).find(|p| p.is_file()))
+        .unwrap_or_else(|| PathBuf::from("aws"))
+}
+
+#[tauri::command]
+pub async fn sso_login(state: State<'_, AppState>, profile: String) -> AppResult<()> {
+    let out = tokio::process::Command::new(find_aws_cli())
+        .args(["sso", "login", "--profile", &profile])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await
+        .map_err(|e| AppError::new(ErrorKind::Auth, format!("Could not run the AWS CLI (aws sso login): {e}")))?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_owned();
+        let msg = if stderr.is_empty() { format!("aws sso login failed with {}", out.status) } else { stderr };
+        return Err(AppError::new(ErrorKind::Auth, msg));
+    }
+    state.clients.invalidate(&profile).await;
+    Ok(())
+}
+
