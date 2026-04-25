@@ -189,3 +189,104 @@ pub async fn sso_login(state: State<'_, AppState>, profile: String) -> AppResult
     Ok(())
 }
 
+#[tauri::command]
+pub async fn whoami(state: State<'_, AppState>, profile: String, region: String) -> AppResult<CallerIdentity> {
+    let sts = state.clients.get(&profile, &region).await.sts.clone();
+    let out = crate::ecs::call(&state, &profile, &region, sts.get_caller_identity().send()).await?;
+    Ok(CallerIdentity {
+        account: out.account().unwrap_or_default().to_owned(),
+        arn: out.arn().unwrap_or_default().to_owned(),
+        user_id: out.user_id().unwrap_or_default().to_owned(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CONFIG: &str = r#"
+# comment
+[default]
+region = us-west-2
+
+[profile demo-dev]
+sso_session = demo
+sso_account_id = 111122223333
+sso_role_name = Dev
+region = eu-west-1
+s3 =
+  max_concurrent_requests = 20
+
+; another comment
+[profile demo-prod]
+role_arn = arn:aws:iam::444455556666:role/Admin
+source_profile = default
+
+[profile proc]
+credential_process = /usr/bin/get-creds
+
+[profile legacy-sso]
+sso_start_url = https://x.awsapps.com/start
+
+[sso-session demo]
+sso_start_url = https://my-sso-portal.awsapps.com/start
+sso_region = us-east-1
+
+[services local]
+"#;
+
+    const CREDS: &str = "[default]\naws_access_key_id = AKIA\naws_secret_access_key = x\n\n[keys-only]\naws_access_key_id=AKIB\n";
+
+    fn find<'a>(v: &'a [RawProfile], n: &str) -> &'a RawProfile {
+        v.iter().find(|p| p.name == n).unwrap()
+    }
+
+    #[test]
+    fn parses_and_merges() {
+        let v = parse_profiles(CONFIG, CREDS);
+        let names: Vec<_> = v.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["default", "demo-dev", "demo-prod", "keys-only", "legacy-sso", "proc"]);
+        assert_eq!(find(&v, "demo-dev").config.get("region").map(String::as_str), Some("eu-west-1"));
+        assert!(!find(&v, "demo-dev").config.contains_key("max_concurrent_requests"));
+    }
+
+    #[test]
+    fn auth_kinds_and_accounts() {
+        let v = parse_profiles(CONFIG, CREDS);
+        assert_eq!(auth_kind(find(&v, "demo-dev")), AuthKind::Sso);
+        assert_eq!(auth_kind(find(&v, "legacy-sso")), AuthKind::Sso);
+        assert_eq!(auth_kind(find(&v, "demo-prod")), AuthKind::AssumeRole);
+        assert_eq!(auth_kind(find(&v, "proc")), AuthKind::Process);
+        assert_eq!(auth_kind(find(&v, "default")), AuthKind::Static);
+        assert_eq!(auth_kind(find(&v, "keys-only")), AuthKind::Static);
+        assert_eq!(account_id(find(&v, "demo-dev")).as_deref(), Some("111122223333"));
+        assert_eq!(account_id(find(&v, "demo-prod")).as_deref(), Some("444455556666"));
+        assert_eq!(account_id(find(&v, "proc")), None);
+    }
+
+    #[test]
+    fn profile_regions_and_flags() {
+        let v = parse_profiles(CONFIG, CREDS);
+        let mut s = Settings::default();
+        let p = to_profile(find(&v, "demo-prod"), &s);
+        assert_eq!(p.regions, ["us-east-1"]);
+        assert!(p.is_prod && p.read_only);
+        assert_eq!(to_profile(find(&v, "demo-dev"), &s).regions, ["eu-west-1"]);
+
+        s.profile_regions.insert("demo-dev".into(), vec!["us-east-2".into(), "ap-south-1".into()]);
+        s.read_only.insert("demo-prod".into(), false);
+        assert_eq!(to_profile(find(&v, "demo-dev"), &s).regions, ["us-east-2", "ap-south-1"]);
+        assert!(!to_profile(find(&v, "demo-prod"), &s).read_only);
+    }
+
+    #[test]
+    fn parses_file_from_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("config");
+        std::fs::write(&cfg, "[profile from-file]\nregion = sa-east-1\n").unwrap();
+        let text = std::fs::read_to_string(&cfg).unwrap();
+        let v = parse_profiles(&text, "");
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].name, "from-file");
+    }
+}
