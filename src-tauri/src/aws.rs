@@ -140,3 +140,28 @@ impl Limiter {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn burst_then_waits() {
+        let l = Limiter::new(3.0, 100.0);
+        for _ in 0..3 {
+            l.acquire("p", "r").await;
+        }
+        let start = Instant::now();
+        l.acquire("p", "r").await;
+        assert!(start.elapsed() >= Duration::from_millis(5));
+        assert_eq!(l.calls_per_min("p", "r").await, 4);
+    }
+
+    #[tokio::test]
+    async fn throttle_slows_bucket() {
+        let l = Limiter::new(2.0, 50.0);
+        l.acquire("p", "r").await;
+        l.throttled("p", "r").await;
+        assert!(l.is_slowed("p", "r").await);
+        assert!(!l.is_slowed("p", "other").await);
+    }
+}
