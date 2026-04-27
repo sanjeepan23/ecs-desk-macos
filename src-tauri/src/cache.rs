@@ -49,3 +49,68 @@ pub async fn persist(db: PathBuf, settings: Settings) -> AppResult<()> {
         .map_err(AppError::from)
 }
 
+#[tauri::command]
+pub async fn get_settings(state: State<'_, AppState>) -> AppResult<Settings> {
+    Ok(state.settings.read().await.clone())
+}
+
+#[tauri::command]
+pub async fn update_settings(state: State<'_, AppState>, settings: Settings) -> AppResult<Settings> {
+    let mut guard = state.settings.write().await;
+    let settings = keep_safety_fields(&guard, settings);
+    persist(state.db_path.clone(), settings.clone()).await?;
+    *guard = settings.clone();
+    Ok(settings)
+}
+
+/// The UI can send a stale copy, so read-only choices and detected production profiles come from `current`.
+/// Only `set_read_only` and `note_resource_names` change them.
+fn keep_safety_fields(current: &Settings, incoming: Settings) -> Settings {
+    Settings { read_only: current.read_only.clone(), detected_prod: current.detected_prod.clone(), ..incoming }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_file_gives_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = load_settings(&dir.path().join("none.sqlite")).unwrap();
+        assert_eq!(s, Settings::default());
+    }
+
+    #[test]
+    fn missing_row_gives_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("x.sqlite");
+        open(&db).unwrap();
+        assert_eq!(load_settings(&db).unwrap(), Settings::default());
+    }
+
+    #[test]
+    fn round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("x.sqlite");
+        let mut s = Settings { poll_focused_secs: 5, theme: "dark".into(), ..Settings::default() };
+        s.read_only.insert("demo-prod".into(), false);
+        s.profile_regions.insert("dev".into(), vec!["eu-west-1".into()]);
+        save_settings(&db, &s).unwrap();
+        assert_eq!(load_settings(&db).unwrap(), s);
+        s.telemetry = true;
+        save_settings(&db, &s).unwrap();
+        assert_eq!(load_settings(&db).unwrap(), s);
+    }
+
+    #[test]
+    fn stale_ui_settings_keep_safety_fields() {
+        let mut current = Settings::default();
+        current.detected_prod.insert("demo".into());
+        current.read_only.insert("dev".into(), true);
+        let incoming = Settings { last_region: Some("eu-west-1".into()), ..Settings::default() };
+        let merged = keep_safety_fields(&current, incoming);
+        assert_eq!(merged.last_region.as_deref(), Some("eu-west-1"));
+        assert!(merged.is_read_only("demo"));
+        assert!(merged.is_read_only("dev"));
+    }
+}
