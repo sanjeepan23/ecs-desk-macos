@@ -1,0 +1,54 @@
+//! Converts AWS SDK types to the models in `models.rs`.
+//! The ops-backend agent calls these two functions; keep their names and signatures.
+
+use aws_sdk_ecs::types as sdk;
+use aws_smithy_types::DateTime;
+
+use crate::models::{Container, Deployment, ServiceEvent, ServiceSummary, Task};
+
+pub fn service_summary(s: &sdk::Service) -> ServiceSummary {
+    let deployments: Vec<Deployment> = s.deployments().iter().map(deployment).collect();
+    let task_definition = s.task_definition().unwrap_or_default().to_owned();
+    let primary_rollout = deployments
+        .iter()
+        .find(|d| d.status == "PRIMARY")
+        .and_then(|d| d.rollout_state.clone());
+    let events: Vec<ServiceEvent> = s.events().iter().map(service_event).collect();
+    let health = crate::ecs::service_health(&crate::ecs::HealthInput {
+        primary_rollout: primary_rollout.as_deref(),
+        deployment_count: deployments.len(),
+        desired: s.desired_count(),
+        running: s.running_count(),
+        events: &events,
+        now_ms: chrono::Utc::now().timestamp_millis(),
+    });
+    ServiceSummary {
+        arn: s.service_arn().unwrap_or_default().to_owned(),
+        name: s.service_name().unwrap_or_default().to_owned(),
+        cluster_name: arn_name(s.cluster_arn().unwrap_or_default()),
+        status: s.status().unwrap_or_default().to_owned(),
+        desired: s.desired_count(),
+        running: s.running_count(),
+        pending: s.pending_count(),
+        task_definition_short: task_def_short(&task_definition),
+        task_definition,
+        launch_type: s
+            .launch_type()
+            .map(|l| l.as_str().to_owned())
+            .or_else(|| s.capacity_provider_strategy().first().map(|c| c.capacity_provider().to_owned())),
+        health,
+        deployments,
+        created_at: ms(s.created_at()),
+        enable_execute_command: s.enable_execute_command(),
+        load_balancers: s
+            .load_balancers()
+            .iter()
+            .filter_map(|lb| {
+                lb.target_group_arn()
+                    .map(arn_name)
+                    .or_else(|| lb.load_balancer_name().map(str::to_owned))
+            })
+            .collect(),
+    }
+}
+
