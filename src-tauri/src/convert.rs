@@ -52,3 +52,54 @@ pub fn service_summary(s: &sdk::Service) -> ServiceSummary {
     }
 }
 
+pub fn task_model(t: &sdk::Task) -> Task {
+    let arn = t.task_arn().unwrap_or_default().to_owned();
+    let task_definition = t.task_definition_arn().unwrap_or_default().to_owned();
+    let private_ip = t
+        .containers()
+        .iter()
+        .flat_map(|c| c.network_interfaces())
+        .find_map(|n| n.private_ipv4_address())
+        .or_else(|| {
+            t.attachments()
+                .iter()
+                .flat_map(|a| a.details())
+                .find(|kv| kv.name() == Some("privateIPv4Address"))
+                .and_then(|kv| kv.value())
+        })
+        .map(str::to_owned);
+    Task {
+        id: arn_name(&arn),
+        arn,
+        cluster_name: arn_name(t.cluster_arn().unwrap_or_default()),
+        service_name: t.group().and_then(|g| g.strip_prefix("service:")).map(str::to_owned),
+        last_status: t.last_status().unwrap_or_default().to_owned(),
+        desired_status: t.desired_status().unwrap_or_default().to_owned(),
+        health_status: t.health_status().map(|h| h.as_str().to_owned()),
+        revision: revision(&task_definition),
+        task_definition,
+        availability_zone: t.availability_zone().map(str::to_owned),
+        private_ip,
+        cpu: t.cpu().map(str::to_owned),
+        memory: t.memory().map(str::to_owned),
+        started_at: ms(t.started_at()),
+        stopped_at: ms(t.stopped_at()),
+        stop_reason: t.stopped_reason().map(str::to_owned),
+        stop_code: t.stop_code().map(|c| c.as_str().to_owned()),
+        launch_type: t
+            .launch_type()
+            .map(|l| l.as_str().to_owned())
+            .or_else(|| t.capacity_provider_name().map(str::to_owned)),
+        enable_execute_command: t.enable_execute_command(),
+        containers: t.containers().iter().map(container).collect(),
+    }
+}
+
+pub fn service_event(e: &sdk::ServiceEvent) -> ServiceEvent {
+    ServiceEvent {
+        id: e.id().unwrap_or_default().to_owned(),
+        created_at: ms(e.created_at()),
+        message: e.message().unwrap_or_default().to_owned(),
+    }
+}
+
