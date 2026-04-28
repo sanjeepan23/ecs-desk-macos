@@ -405,3 +405,113 @@ pub async fn list_tasks(
     fetch_tasks(&state, &profile, &region, &cluster, service.as_deref(), &desired_status).await
 }
 
+#[tauri::command]
+pub async fn get_task(
+    state: State<'_, AppState>,
+    profile: String,
+    region: String,
+    cluster: String,
+    task_arn: String,
+) -> AppResult<Task> {
+    fetch_task(&state, &profile, &region, &cluster, &task_arn).await
+}
+
+#[tauri::command]
+pub async fn get_task_definition(
+    state: State<'_, AppState>,
+    profile: String,
+    region: String,
+    task_definition: String,
+) -> AppResult<serde_json::Value> {
+    fetch_task_definition(&state, &profile, &region, &task_definition).await
+}
+
+/// Newest first, as "family:revision".
+#[tauri::command]
+pub async fn list_task_definition_revisions(
+    state: State<'_, AppState>,
+    profile: String,
+    region: String,
+    family: String,
+) -> AppResult<Vec<String>> {
+    fetch_task_definition_revisions(&state, &profile, &region, &family).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NOW: i64 = 1_700_000_000_000;
+
+    fn ev(age_secs: i64, msg: &str) -> ServiceEvent {
+        ServiceEvent { id: String::new(), created_at: Some(NOW - age_secs * 1000), message: msg.into() }
+    }
+
+    fn input<'a>(rollout: Option<&'a str>, deps: usize, desired: i32, running: i32, events: &'a [ServiceEvent]) -> HealthInput<'a> {
+        HealthInput { primary_rollout: rollout, deployment_count: deps, desired, running, events, now_ms: NOW }
+    }
+
+    #[test]
+    fn health_rules() {
+        let none: [ServiceEvent; 0] = [];
+        assert_eq!(service_health(&input(Some("COMPLETED"), 1, 2, 2, &none)), ServiceHealth::Healthy);
+        assert_eq!(service_health(&input(Some("FAILED"), 1, 2, 2, &none)), ServiceHealth::Failing);
+        assert_eq!(service_health(&input(None, 1, 2, 0, &none)), ServiceHealth::Failing);
+        assert_eq!(service_health(&input(None, 1, 0, 0, &none)), ServiceHealth::Healthy);
+        assert_eq!(service_health(&input(Some("IN_PROGRESS"), 1, 2, 2, &none)), ServiceHealth::Deploying);
+        assert_eq!(service_health(&input(Some("COMPLETED"), 2, 2, 1, &none)), ServiceHealth::Deploying);
+        assert_eq!(service_health(&input(Some("COMPLETED"), 1, 3, 2, &none)), ServiceHealth::Degraded);
+    }
+
+    #[test]
+    fn crash_loop_is_failing() {
+        let loop_events = [
+            ev(10, "(service web) has started 1 tasks: (task a)."),
+            ev(40, "(service web) has stopped 1 running tasks: (task b)."),
+            ev(70, "(service web) has started 1 tasks: (task b)."),
+            ev(100, "(service web) has stopped 1 running tasks: (task c)."),
+            ev(130, "(service web) has stopped 1 running tasks: (task d)."),
+        ];
+        assert_eq!(service_health(&input(Some("COMPLETED"), 1, 2, 2, &loop_events)), ServiceHealth::Failing);
+        // During a deployment, stops are normal.
+        assert_eq!(service_health(&input(Some("IN_PROGRESS"), 2, 2, 2, &loop_events)), ServiceHealth::Deploying);
+
+        let old: Vec<ServiceEvent> = loop_events.iter().map(|e| ev(3600, &e.message)).collect();
+        assert_eq!(service_health(&input(Some("COMPLETED"), 1, 2, 2, &old)), ServiceHealth::Healthy);
+
+        let unable = [ev(5, "(service web) is unable to consistently start tasks successfully.")];
+        assert_eq!(service_health(&input(None, 2, 2, 2, &unable)), ServiceHealth::Failing);
+    }
+
+    #[test]
+    fn tasks_sort_newest_first() {
+        let mk = |id: &str, started: Option<i64>, stopped: Option<i64>| Task {
+            arn: id.into(),
+            id: id.into(),
+            cluster_name: String::new(),
+            service_name: None,
+            last_status: String::new(),
+            desired_status: String::new(),
+            health_status: None,
+            task_definition: String::new(),
+            revision: None,
+            availability_zone: None,
+            private_ip: None,
+            cpu: None,
+            memory: None,
+            started_at: started,
+            stopped_at: stopped,
+            stop_reason: None,
+            stop_code: None,
+            launch_type: None,
+            enable_execute_command: false,
+            containers: vec![],
+        };
+        let mut t = vec![mk("a", Some(1), Some(30)), mk("b", Some(3), Some(10)), mk("c", None, None)];
+        sort_tasks(&mut t, false);
+        assert_eq!(t.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), ["b", "a", "c"]);
+        sort_tasks(&mut t, true);
+        assert_eq!(t.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+    }
+}
+
