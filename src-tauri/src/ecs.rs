@@ -94,3 +94,61 @@ pub async fn fetch_clusters(st: &AppState, profile: &str, region: &str) -> AppRe
     Ok(clusters)
 }
 
+pub async fn fetch_services(
+    st: &AppState,
+    profile: &str,
+    region: &str,
+    cluster: &str,
+) -> AppResult<Vec<ServiceSummary>> {
+    let ecs = st.clients.get(profile, region).await.ecs.clone();
+    let mut arns = Vec::new();
+    let mut token = None;
+    loop {
+        let out = call(
+            st,
+            profile,
+            region,
+            ecs.list_services().cluster(cluster).set_next_token(token).max_results(100).send(),
+        )
+        .await?;
+        arns.extend(out.service_arns().iter().cloned());
+        token = out.next_token().map(str::to_owned);
+        if token.is_none() {
+            break;
+        }
+    }
+    let mut services = Vec::new();
+    for chunk in arns.chunks(DESCRIBE_SERVICES_BATCH) {
+        let out = call(
+            st,
+            profile,
+            region,
+            ecs.describe_services().cluster(cluster).set_services(Some(chunk.to_vec())).send(),
+        )
+        .await?;
+        services.extend(out.services().iter().map(service_summary));
+    }
+    services.sort_by(|a, b| a.name.cmp(&b.name));
+    st.note_resource_names(profile, services.iter().map(|s| s.name.as_str())).await;
+    Ok(services)
+}
+
+pub async fn fetch_service(
+    st: &AppState,
+    profile: &str,
+    region: &str,
+    cluster: &str,
+    service: &str,
+) -> AppResult<ServiceDetail> {
+    let ecs = st.clients.get(profile, region).await.ecs.clone();
+    let out = call(st, profile, region, ecs.describe_services().cluster(cluster).services(service).send()).await?;
+    let s = out
+        .services()
+        .first()
+        .ok_or_else(|| AppError::new(ErrorKind::NotFound, format!("Service {service} not found in {cluster}.")))?;
+    let mut events: Vec<ServiceEvent> = s.events().iter().map(convert::service_event).collect();
+    events.sort_by_key(|e| std::cmp::Reverse(e.created_at));
+    events.truncate(MAX_EVENTS);
+    Ok(ServiceDetail { service: service_summary(s), events })
+}
+
