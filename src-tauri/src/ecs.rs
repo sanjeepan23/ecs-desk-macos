@@ -515,3 +515,43 @@ mod tests {
     }
 }
 
+/// Read-only live check. Run with `ECS_DESK_SMOKE_PROFILE=<profile> cargo test smoke -- --ignored --nocapture`.
+#[cfg(test)]
+mod smoke {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore]
+    async fn smoke_read_only() {
+        let profile = std::env::var("ECS_DESK_SMOKE_PROFILE").expect("set ECS_DESK_SMOKE_PROFILE");
+        let region = std::env::var("ECS_DESK_SMOKE_REGION").unwrap_or_else(|_| "us-east-1".into());
+        let st = AppState {
+            app: None,
+            clients: Default::default(),
+            limiter: Default::default(),
+            settings: Default::default(),
+            db_path: std::env::temp_dir().join("ecs-desk-smoke.sqlite"),
+            poller: Default::default(),
+            tails: Default::default(),
+            exec: Default::default(),
+            watches: Default::default(),
+            fleet: Default::default(),
+        };
+        let clusters = fetch_clusters(&st, &profile, &region).await.unwrap();
+        println!("clusters: {}", clusters.len());
+        for c in clusters.iter().take(3) {
+            let services = fetch_services(&st, &profile, &region, &c.arn).await.unwrap();
+            println!("{}: {} services", c.name, services.len());
+            if let Some(s) = services.first() {
+                let d = fetch_service(&st, &profile, &region, &c.arn, &s.name).await.unwrap();
+                println!("  {} {:?} events={}", s.name, d.service.health, d.events.len());
+                let tasks = fetch_tasks(&st, &profile, &region, &c.arn, Some(&s.name), "RUNNING").await.unwrap();
+                println!("  tasks={}", tasks.len());
+                let td = fetch_task_definition(&st, &profile, &region, &s.task_definition).await.unwrap();
+                println!("  td family={}", td["family"]);
+                let family = s.task_definition_short.split(':').next().unwrap();
+                println!("  revisions={:?}", fetch_task_definition_revisions(&st, &profile, &region, family).await.unwrap());
+            }
+        }
+    }
+}
