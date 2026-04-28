@@ -203,3 +203,50 @@ pub async fn fetch_tasks(
     Ok(tasks)
 }
 
+/// Newest first: by `stoppedAt` for stopped tasks, else by `startedAt`. Tasks with no time go last.
+fn sort_tasks(tasks: &mut [Task], stopped: bool) {
+    let key = |t: &Task| if stopped { t.stopped_at } else { t.started_at };
+    tasks.sort_by_key(|t| std::cmp::Reverse(key(t)));
+}
+
+pub async fn fetch_task(st: &AppState, profile: &str, region: &str, cluster: &str, task_arn: &str) -> AppResult<Task> {
+    let ecs = st.clients.get(profile, region).await.ecs.clone();
+    let out = call(st, profile, region, ecs.describe_tasks().cluster(cluster).tasks(task_arn).send()).await?;
+    out.tasks()
+        .first()
+        .map(task_model)
+        .ok_or_else(|| AppError::new(ErrorKind::NotFound, format!("Task {task_arn} not found in {cluster}.")))
+}
+
+pub async fn fetch_task_definition(st: &AppState, profile: &str, region: &str, task_definition: &str) -> AppResult<Value> {
+    let ecs = st.clients.get(profile, region).await.ecs.clone();
+    let out = call(st, profile, region, ecs.describe_task_definition().task_definition(task_definition).send()).await?;
+    let td = out
+        .task_definition()
+        .ok_or_else(|| AppError::new(ErrorKind::NotFound, format!("Task definition {task_definition} not found.")))?;
+    Ok(task_definition_json(td))
+}
+
+pub async fn fetch_task_definition_revisions(
+    st: &AppState,
+    profile: &str,
+    region: &str,
+    family: &str,
+) -> AppResult<Vec<String>> {
+    let ecs = st.clients.get(profile, region).await.ecs.clone();
+    let out = call(
+        st,
+        profile,
+        region,
+        ecs.list_task_definitions().family_prefix(family).sort(SortOrder::Desc).max_results(20).send(),
+    )
+    .await?;
+    Ok(out
+        .task_definition_arns()
+        .iter()
+        .map(|a| convert::task_def_short(a))
+        // The family prefix also matches longer family names, so keep exact matches only.
+        .filter(|s| s.rsplit_once(':').is_some_and(|(f, _)| f == family))
+        .collect())
+}
+
