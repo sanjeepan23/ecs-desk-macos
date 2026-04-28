@@ -348,3 +348,60 @@ pub fn service_health(h: &HealthInput) -> ServiceHealth {
     }
 }
 
+/// True when recent events show tasks that start and stop again and again.
+/// A deployment also stops tasks, so stop counts apply only with one deployment.
+fn crash_looping(h: &HealthInput) -> bool {
+    let recent: Vec<&str> = h
+        .events
+        .iter()
+        .take(10)
+        .filter(|e| e.created_at.is_some_and(|t| h.now_ms - t <= RECENT_EVENT_MS))
+        .map(|e| e.message.as_str())
+        .collect();
+    if recent.iter().any(|m| m.contains("unable to consistently start tasks")) {
+        return true;
+    }
+    let stops = recent.iter().filter(|m| m.contains("has stopped")).count();
+    let starts = recent.iter().filter(|m| m.contains("has started")).count();
+    h.deployment_count <= 1 && stops >= 3 && starts >= 2
+}
+
+#[tauri::command]
+pub async fn list_clusters(state: State<'_, AppState>, profile: String, region: String) -> AppResult<Vec<ClusterSummary>> {
+    fetch_clusters(&state, &profile, &region).await
+}
+
+#[tauri::command]
+pub async fn list_services(
+    state: State<'_, AppState>,
+    profile: String,
+    region: String,
+    cluster: String,
+) -> AppResult<Vec<ServiceSummary>> {
+    fetch_services(&state, &profile, &region, &cluster).await
+}
+
+#[tauri::command]
+pub async fn get_service(
+    state: State<'_, AppState>,
+    profile: String,
+    region: String,
+    cluster: String,
+    service: String,
+) -> AppResult<ServiceDetail> {
+    fetch_service(&state, &profile, &region, &cluster, &service).await
+}
+
+/// `desired_status` is "RUNNING" or "STOPPED".
+#[tauri::command]
+pub async fn list_tasks(
+    state: State<'_, AppState>,
+    profile: String,
+    region: String,
+    cluster: String,
+    service: Option<String>,
+    desired_status: String,
+) -> AppResult<Vec<Task>> {
+    fetch_tasks(&state, &profile, &region, &cluster, service.as_deref(), &desired_status).await
+}
+
