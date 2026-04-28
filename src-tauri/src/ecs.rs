@@ -152,3 +152,54 @@ pub async fn fetch_service(
     Ok(ServiceDetail { service: service_summary(s), events })
 }
 
+pub async fn fetch_tasks(
+    st: &AppState,
+    profile: &str,
+    region: &str,
+    cluster: &str,
+    service: Option<&str>,
+    desired_status: &str,
+) -> AppResult<Vec<Task>> {
+    let status = match desired_status {
+        "RUNNING" => DesiredStatus::Running,
+        "STOPPED" => DesiredStatus::Stopped,
+        other => return Err(AppError::invalid(format!("desiredStatus must be RUNNING or STOPPED, not {other}."))),
+    };
+    let ecs = st.clients.get(profile, region).await.ecs.clone();
+    let mut arns = Vec::new();
+    let mut token = None;
+    loop {
+        let out = call(
+            st,
+            profile,
+            region,
+            ecs.list_tasks()
+                .cluster(cluster)
+                .set_service_name(service.map(str::to_owned))
+                .desired_status(status.clone())
+                .set_next_token(token)
+                .max_results(100)
+                .send(),
+        )
+        .await?;
+        arns.extend(out.task_arns().iter().cloned());
+        token = out.next_token().map(str::to_owned);
+        if token.is_none() {
+            break;
+        }
+    }
+    let mut tasks = Vec::new();
+    for chunk in arns.chunks(DESCRIBE_TASKS_BATCH) {
+        let out = call(
+            st,
+            profile,
+            region,
+            ecs.describe_tasks().cluster(cluster).set_tasks(Some(chunk.to_vec())).send(),
+        )
+        .await?;
+        tasks.extend(out.tasks().iter().map(task_model));
+    }
+    sort_tasks(&mut tasks, status == DesiredStatus::Stopped);
+    Ok(tasks)
+}
+
