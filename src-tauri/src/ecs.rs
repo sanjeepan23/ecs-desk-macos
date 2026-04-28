@@ -302,3 +302,49 @@ fn container_json(c: &ContainerDefinition) -> Value {
     })
 }
 
+fn task_definition_json(td: &TaskDefinition) -> Value {
+    let mut m = Map::new();
+    m.insert("family".into(), json!(td.family()));
+    m.insert("revision".into(), json!(td.revision()));
+    m.insert("taskDefinitionArn".into(), json!(td.task_definition_arn()));
+    m.insert("networkMode".into(), json!(td.network_mode().map(|n| n.as_str())));
+    m.insert(
+        "requiresCompatibilities".into(),
+        json!(td.requires_compatibilities().iter().map(|c| c.as_str()).collect::<Vec<_>>()),
+    );
+    m.insert("cpu".into(), json!(td.cpu()));
+    m.insert("memory".into(), json!(td.memory()));
+    m.insert("executionRoleArn".into(), json!(td.execution_role_arn()));
+    m.insert("taskRoleArn".into(), json!(td.task_role_arn()));
+    m.insert(
+        "containerDefinitions".into(),
+        Value::Array(td.container_definitions().iter().map(container_json).collect()),
+    );
+    Value::Object(m)
+}
+
+pub struct HealthInput<'a> {
+    pub primary_rollout: Option<&'a str>,
+    pub deployment_count: usize,
+    pub desired: i32,
+    pub running: i32,
+    /// Service events, newest first.
+    pub events: &'a [ServiceEvent],
+    pub now_ms: i64,
+}
+
+/// Events older than this do not count as "recent" for the crash-loop check.
+const RECENT_EVENT_MS: i64 = 15 * 60 * 1000;
+
+pub fn service_health(h: &HealthInput) -> ServiceHealth {
+    if h.primary_rollout == Some("FAILED") || (h.desired > 0 && h.running == 0) || crash_looping(h) {
+        ServiceHealth::Failing
+    } else if h.deployment_count > 1 || h.primary_rollout == Some("IN_PROGRESS") {
+        ServiceHealth::Deploying
+    } else if h.running < h.desired {
+        ServiceHealth::Degraded
+    } else {
+        ServiceHealth::Healthy
+    }
+}
+
