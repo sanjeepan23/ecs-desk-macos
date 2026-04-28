@@ -103,3 +103,52 @@ pub fn service_event(e: &sdk::ServiceEvent) -> ServiceEvent {
     }
 }
 
+fn deployment(d: &sdk::Deployment) -> Deployment {
+    Deployment {
+        id: d.id().unwrap_or_default().to_owned(),
+        status: d.status().unwrap_or_default().to_owned(),
+        task_definition: d.task_definition().unwrap_or_default().to_owned(),
+        desired: d.desired_count(),
+        running: d.running_count(),
+        pending: d.pending_count(),
+        failed: d.failed_tasks(),
+        rollout_state: d.rollout_state().map(|r| r.as_str().to_owned()),
+        rollout_reason: d.rollout_state_reason().map(str::to_owned),
+        created_at: ms(d.created_at()),
+        updated_at: ms(d.updated_at()),
+    }
+}
+
+fn container(c: &sdk::Container) -> Container {
+    Container {
+        name: c.name().unwrap_or_default().to_owned(),
+        image: c.image().map(str::to_owned),
+        last_status: c.last_status().map(str::to_owned),
+        health_status: c.health_status().map(|h| h.as_str().to_owned()),
+        exit_code: c.exit_code(),
+        reason: c.reason().map(str::to_owned),
+        runtime_id: c.runtime_id().map(str::to_owned),
+        exec_agent_status: c
+            .managed_agents()
+            .iter()
+            .find(|a| matches!(a.name(), Some(sdk::ManagedAgentName::ExecuteCommandAgent)))
+            .and_then(|a| a.last_status())
+            .map(str::to_owned),
+    }
+}
+
+/// Unix time in milliseconds.
+pub fn ms(t: Option<&DateTime>) -> Option<i64> {
+    t.and_then(|t| t.to_millis().ok())
+}
+
+/// The last "/" segment of an ARN, or the input if it has no "/".
+pub fn arn_name(arn: &str) -> String {
+    arn.rsplit('/').next().unwrap_or(arn).to_owned()
+}
+
+/// "arn:...:task-definition/web:42" becomes "web:42".
+pub fn task_def_short(arn: &str) -> String {
+    arn_name(arn)
+}
+
