@@ -250,3 +250,55 @@ pub async fn fetch_task_definition_revisions(
         .collect())
 }
 
+fn strings(v: &[String]) -> Value {
+    json!(v)
+}
+
+fn container_json(c: &ContainerDefinition) -> Value {
+    let env: Vec<Value> = c.environment().iter().map(|kv| json!({"name": kv.name(), "value": kv.value()})).collect();
+    let secrets: Vec<Value> =
+        c.secrets().iter().map(|s| json!({"name": s.name(), "valueFrom": s.value_from()})).collect();
+    let ports: Vec<Value> = c
+        .port_mappings()
+        .iter()
+        .map(|p| {
+            json!({
+                "name": p.name(),
+                "containerPort": p.container_port(),
+                "hostPort": p.host_port(),
+                "protocol": p.protocol().map(|x| x.as_str()),
+                "appProtocol": p.app_protocol().map(|x| x.as_str()),
+            })
+        })
+        .collect();
+    let log = c.log_configuration().map(|l| {
+        json!({
+            "logDriver": l.log_driver().as_str(),
+            "options": l.options().map(|o| o.iter().collect::<std::collections::BTreeMap<_, _>>()),
+        })
+    });
+    let health = c.health_check().map(|h| {
+        json!({
+            "command": strings(h.command()),
+            "interval": h.interval(),
+            "timeout": h.timeout(),
+            "retries": h.retries(),
+            "startPeriod": h.start_period(),
+        })
+    });
+    json!({
+        "name": c.name(),
+        "image": c.image(),
+        "essential": c.essential(),
+        "cpu": c.cpu(),
+        "memory": c.memory(),
+        "portMappings": ports,
+        "environment": env,
+        "secrets": secrets,
+        "logConfiguration": log,
+        "healthCheck": health,
+        "command": strings(c.command()),
+        "entryPoint": strings(c.entry_point()),
+    })
+}
+
