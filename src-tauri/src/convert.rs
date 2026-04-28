@@ -152,3 +152,43 @@ pub fn task_def_short(arn: &str) -> String {
     arn_name(arn)
 }
 
+pub fn revision(task_def_arn: &str) -> Option<i32> {
+    task_def_arn.rsplit(':').next()?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arn_helpers() {
+        let td = "arn:aws:ecs:us-east-1:123456789012:task-definition/web:42";
+        assert_eq!(task_def_short(td), "web:42");
+        assert_eq!(revision(td), Some(42));
+        assert_eq!(revision("web"), None);
+        assert_eq!(arn_name("arn:aws:ecs:us-east-1:1:task/main/abc123"), "abc123");
+        assert_eq!(arn_name("plain"), "plain");
+    }
+
+    #[test]
+    fn task_from_sdk() {
+        let t = sdk::Task::builder()
+            .task_arn("arn:aws:ecs:us-east-1:1:task/main/abc")
+            .cluster_arn("arn:aws:ecs:us-east-1:1:cluster/main")
+            .group("service:web")
+            .task_definition_arn("arn:aws:ecs:us-east-1:1:task-definition/web:7")
+            .last_status("RUNNING")
+            .attachments(
+                sdk::Attachment::builder()
+                    .details(sdk::KeyValuePair::builder().name("privateIPv4Address").value("10.0.0.5").build())
+                    .build(),
+            )
+            .build();
+        let m = task_model(&t);
+        assert_eq!(m.id, "abc");
+        assert_eq!(m.cluster_name, "main");
+        assert_eq!(m.service_name.as_deref(), Some("web"));
+        assert_eq!(m.revision, Some(7));
+        assert_eq!(m.private_ip.as_deref(), Some("10.0.0.5"));
+    }
+}
