@@ -47,3 +47,47 @@ export function taskDefRevision(taskDefinition: string): number | null {
   return Number.isFinite(rev) ? rev : null
 }
 
+/** "RUNNING" becomes "Running". */
+export function titleCase(s: string | null | undefined): string {
+  if (!s) return '—'
+  return s
+    .toLowerCase()
+    .split('_')
+    .join(' ')
+    .replace(/^./, (c) => c.toUpperCase())
+}
+
+/** Task size from CPU units and memory MiB, such as "1 vCPU · 2 GB". */
+export function taskSize(cpu: string | null, memory: string | null): string {
+  const c = cpu ? Number(cpu) : NaN
+  const m = memory ? Number(memory) : NaN
+  const parts: string[] = []
+  if (Number.isFinite(c)) parts.push(`${trim(c / 1024)} vCPU`)
+  if (Number.isFinite(m)) parts.push(m >= 1024 ? `${trim(m / 1024)} GB` : `${m} MiB`)
+  return parts.length ? parts.join(' · ') : '—'
+}
+
+function trim(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+}
+
+/** Percent from 0 to 100. Returns 0 when the total is 0. */
+export function pct(part: number, total: number): number {
+  if (!total) return 0
+  return Math.max(0, Math.min(100, (part / total) * 100))
+}
+
+/** Account ID in groups of four, such as "1111-2222-3333". */
+export function formatAccount(id: string | null | undefined): string {
+  if (!id) return '—'
+  return id.length === 12 ? `${id.slice(0, 4)}-${id.slice(4, 8)}-${id.slice(8)}` : id
+}
+
+/** Account ID from an ARN such as "arn:aws:ecs:us-east-1:123456789012:cluster/x". */
+export function accountFromArn(arn: string): string | null {
+  return arn.split(':')[4] || null
+}
+
+export function serviceArn(region: string, account: string, cluster: string, service: string): string {
+  return `arn:aws:ecs:${region}:${account}:service/${cluster}/${service}`
+}
