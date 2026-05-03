@@ -111,3 +111,22 @@ export function attentionText(svc: ServiceSummary, events: ServiceEvent[] = [], 
   return 'Below desired count.'
 }
 
+export function needsAttention(svc: ServiceSummary): boolean {
+  return svc.health !== 'healthy'
+}
+
+export function isStopped(t: Task): boolean {
+  return t.lastStatus === 'STOPPED'
+}
+
+/** Status bar connection state. An expired session wins over throttling and other errors. */
+export function connectionMeta(
+  p: { polledAt: number | null; throttled: boolean; lastError: string | null } | null,
+  authExpired: boolean,
+): { tone: Tone; label: string } {
+  if (authExpired) return { tone: 'crit', label: 'Session expired' }
+  if (p?.lastError) return { tone: 'crit', label: 'Poll error' }
+  if (p?.throttled) return { tone: 'warn', label: 'Throttled' }
+  if (!p?.polledAt) return { tone: 'neutral', label: 'Connecting' }
+  return { tone: 'ok', label: 'Connected' }
+}
