@@ -59,3 +59,41 @@ describe('tones and labels', () => {
   })
 })
 
+describe('clusterHealth', () => {
+  it('counts failing first, then deploying', () => {
+    expect(clusterHealth([svc({ health: 'failing' }), svc({ health: 'deploying' })])).toEqual({ tone: 'crit', label: '1 failing' })
+    expect(clusterHealth([svc({ health: 'deploying' })]).label).toBe('1 deploying')
+    expect(clusterHealth([svc({})]).label).toBe('Healthy')
+  })
+})
+
+describe('attentionText', () => {
+  const now = 10_000_000
+  it('describes a rollout', () => {
+    expect(attentionText(svc({ health: 'deploying', deployments: [dep({})] }))).toBe('Rollout to revision 58: 1 of 4 new tasks running.')
+  })
+  it('describes OOM restarts from recent events', () => {
+    const events = [1, 2, 3].map((i) => ({
+      id: String(i),
+      createdAt: now - i * 60_000,
+      message: '(service n) stopped 1 running tasks: (task a). Reason: OutOfMemoryError.',
+    }))
+    expect(attentionText(svc({ health: 'failing', running: 1 }), events, now)).toBe(
+      'Tasks stop with exit code 137 (OutOfMemoryError). 3 restarts in 15 min.',
+    )
+  })
+  it('falls back to counts without events', () => {
+    expect(attentionText(svc({ health: 'failing', running: 1 }))).toBe('Below desired count: 1 of 2 running.')
+  })
+})
+
+describe('connectionMeta', () => {
+  const ok = { polledAt: 1, throttled: false, lastError: null }
+  it('orders states by importance', () => {
+    expect(connectionMeta(ok, false).label).toBe('Connected')
+    expect(connectionMeta({ ...ok, throttled: true }, false).label).toBe('Throttled')
+    expect(connectionMeta({ ...ok, lastError: 'x' }, false).label).toBe('Poll error')
+    expect(connectionMeta({ ...ok, throttled: true }, true).label).toBe('Session expired')
+    expect(connectionMeta(null, false).label).toBe('Connecting')
+  })
+})
