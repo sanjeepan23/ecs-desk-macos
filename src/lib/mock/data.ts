@@ -191,3 +191,134 @@ export function makeTask(
   }
 }
 
+let eventSeq = 0
+
+/** Adds an event to the top of the service event list. */
+export function addEvent(svc: MockService, message: string, at = Date.now()) {
+  svc.events.unshift({ id: `evt-${++eventSeq}`, createdAt: at, message })
+  svc.events.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+  svc.events = svc.events.slice(0, 100)
+}
+
+function deployment(
+  r: () => number,
+  td: string,
+  status: string,
+  d: { desired: number; running: number; pending: number; rollout: string; createdAt: number },
+): Deployment {
+  return {
+    id: `ecs-svc/${Array.from({ length: 19 }, () => Math.floor(r() * 10)).join('')}`,
+    status,
+    taskDefinition: td,
+    desired: d.desired,
+    running: d.running,
+    pending: d.pending,
+    failed: 0,
+    rolloutState: d.rollout,
+    rolloutReason: d.rollout === 'COMPLETED' ? 'ECS deployment completed.' : null,
+    createdAt: d.createdAt,
+    updatedAt: d.createdAt + 90e3,
+  }
+}
+
+function makeService(name: string, cluster: string, p: ProfileSeed, region: string): MockService {
+  const b = SVC[name]
+  const r = rng(p.name + region + cluster + name)
+  const account = p.accountId
+  const td = (rev: number) => taskDefArn(region, account, name, rev)
+  const summary: ServiceSummary = {
+    arn: `arn:aws:ecs:${region}:${account}:service/${cluster}/${name}`,
+    name,
+    clusterName: cluster,
+    status: 'ACTIVE',
+    desired: b.desired,
+    running: b.desired,
+    pending: 0,
+    taskDefinition: td(b.rev),
+    taskDefinitionShort: `${name}:${b.rev}`,
+    launchType: 'FARGATE',
+    health: 'healthy',
+    deployments: [],
+    createdAt: T0 - 400 * 86400e3,
+    enableExecuteCommand: !(p.isProd && name === 'web-frontend'),
+    loadBalancers: b.port ? [`arn:aws:elasticloadbalancing:${region}:${account}:targetgroup/${name}-tg/${hex(r, 16)}`] : [],
+  }
+  const svc: MockService = {
+    profile: p.name,
+    region,
+    env: p.env,
+    summary,
+    events: [],
+    tasks: [],
+    stopped: [],
+    port: b.port,
+    cpuUnits: b.cpu,
+    memMiB: b.mem,
+    cpuBase: b.cpuBase,
+    memBase: b.memBase,
+  }
+  const now = T0
+  const special = p.name === 'demo-prod' && region === 'us-east-1' && cluster === 'core-prod'
+  const ev = (at: number, m: string) => svc.events.push({ id: `evt-${++eventSeq}`, createdAt: at, message: m })
+
+  if (special && name === 'payments-worker') {
+    summary.health = 'deploying'
+    summary.taskDefinition = td(58)
+    summary.taskDefinitionShort = `${name}:58`
+    summary.pending = 1
+    summary.deployments = [
+      deployment(r, td(58), 'PRIMARY', { desired: 4, running: 1, pending: 1, rollout: 'IN_PROGRESS', createdAt: now - 4 * 60e3 }),
+      deployment(r, td(57), 'ACTIVE', { desired: 3, running: 3, pending: 0, rollout: 'COMPLETED', createdAt: now - 6 * 86400e3 }),
+    ]
+    for (let i = 0; i < 3; i++) svc.tasks.push(makeTask(svc, r, { rev: 57 }))
+    svc.tasks.push(makeTask(svc, r, { rev: 58, startedAt: now - 3 * 60e3 }))
+    svc.tasks.push(makeTask(svc, r, { rev: 58, status: 'PROVISIONING', health: 'UNKNOWN', startedAt: now - 40e3 }))
+    summary.running = 4
+    ev(now - 40e3, `(service payments-worker) has started 1 tasks: (task ${svc.tasks[4].id.slice(0, 8)}).`)
+    ev(now - 3 * 60e3, `(service payments-worker) has started 1 tasks: (task ${svc.tasks[3].id.slice(0, 8)}).`)
+    ev(now - 4 * 60e3, '(service payments-worker) updated the task definition to payments-worker:58.')
+    ev(now - 6 * 86400e3, '(service payments-worker) has reached a steady state.')
+  } else if (special && name === 'notifications') {
+    summary.health = 'failing'
+    summary.running = 1
+    summary.pending = 1
+    svc.tasks.push(makeTask(svc, r, { startedAt: now - 9 * 60e3 }))
+    svc.tasks.push(makeTask(svc, r, { status: 'PROVISIONING', health: 'UNKNOWN', startedAt: now - 25e3 }))
+    for (let i = 0; i < 3; i++) {
+      svc.stopped.push(
+        makeTask(svc, r, {
+          status: 'STOPPED',
+          health: 'UNHEALTHY',
+          exitCode: 137,
+          startedAt: now - (14 + i * 7) * 60e3,
+          stopReason: 'Essential container in task exited. OutOfMemoryError: Container killed due to memory usage',
+        }),
+      )
+    }
+    summary.deployments = [
+      deployment(r, td(31), 'PRIMARY', { desired: 2, running: 1, pending: 1, rollout: 'COMPLETED', createdAt: now - 2 * 86400e3 }),
+    ]
+    const st = (i: number) => svc.stopped[i].id.slice(0, 8)
+    ev(now - 25e3, `(service notifications) has started 1 tasks: (task ${svc.tasks[1].id.slice(0, 8)}).`)
+    ev(now - 31e3, `(service notifications) stopped 1 running tasks: (task ${st(0)}). Reason: OutOfMemoryError.`)
+    ev(now - 7 * 60e3, `(service notifications) has started 1 tasks: (task ${svc.tasks[0].id.slice(0, 8)}).`)
+    ev(now - 8 * 60e3, `(service notifications) stopped 1 running tasks: (task ${st(1)}). Reason: OutOfMemoryError.`)
+    ev(now - 14 * 60e3, `(service notifications) stopped 1 running tasks: (task ${st(2)}). Reason: OutOfMemoryError.`)
+    ev(now - 2 * 86400e3, '(service notifications) has reached a steady state.')
+  } else {
+    for (let i = 0; i < b.desired; i++) svc.tasks.push(makeTask(svc, r, {}))
+    const created = now - Math.floor(r() * 9 + 1) * 86400e3
+    summary.deployments = [
+      deployment(r, td(b.rev), 'PRIMARY', { desired: b.desired, running: b.desired, pending: 0, rollout: 'COMPLETED', createdAt: created }),
+    ]
+    // One stopped task per service, so the Stopped filter is not empty.
+    svc.stopped.push(makeTask(svc, r, { status: 'STOPPED', startedAt: created - 86400e3, stopReason: 'Scaling activity initiated by deployment.' }))
+    ev(now - Math.floor(r() * 5 + 1) * 3600e3, `(service ${name}) has reached a steady state.`)
+    ev(now - Math.floor(r() * 4 + 7) * 3600e3, `(service ${name}) has reached a steady state.`)
+    ev(created + 90e3, `(service ${name}) has started ${b.desired} tasks.`)
+    ev(created, `(service ${name}) updated the task definition to ${name}:${b.rev}.`)
+  }
+  svc.events.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+  return svc
+}
+
