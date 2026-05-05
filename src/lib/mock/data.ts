@@ -105,3 +105,89 @@ export interface MockService {
   memBase: number
 }
 
+export interface MockCluster {
+  name: string
+  arn: string
+  capacityProviders: string[]
+  containerInsights: boolean
+  services: MockService[]
+}
+
+const WORLD = new Map<string, MockCluster[]>()
+const T0 = Date.now()
+
+export function accountOf(profile: string): string {
+  return PROFILES.find((p) => p.name === profile)?.accountId ?? '000000000000'
+}
+
+function seedOf(profile: string): ProfileSeed {
+  return PROFILES.find((p) => p.name === profile) ?? PROFILES[0]
+}
+
+function taskDefArn(region: string, account: string, family: string, rev: number) {
+  return `arn:aws:ecs:${region}:${account}:task-definition/${family}:${rev}`
+}
+
+/** Builds one task for a service. `opts` overrides fields such as status or revision. */
+export function makeTask(
+  svc: MockService,
+  r: () => number,
+  opts: { rev?: number; status?: string; health?: string; startedAt?: number; stopReason?: string; exitCode?: number } = {},
+): Task {
+  const s = svc.summary
+  const account = accountOf(svc.profile)
+  const id = hex(r, 32)
+  const az = svc.region + ['a', 'b', 'c'][Math.floor(r() * 3)]
+  const rev = opts.rev ?? Number(s.taskDefinitionShort.split(':')[1])
+  const status = opts.status ?? 'RUNNING'
+  const stopped = status === 'STOPPED'
+  const health = opts.health ?? (svc.port ? 'HEALTHY' : 'UNKNOWN')
+  const startedAt = opts.startedAt ?? Date.now() - Math.floor(r() * 5 * 86400e3) - 600e3
+  const imgRepo = `${account}.dkr.ecr.${svc.region}.amazonaws.com/${s.name}`
+  const cStatus = stopped ? 'STOPPED' : status === 'PROVISIONING' ? 'PENDING' : 'RUNNING'
+  const containers: Container[] = [
+    {
+      name: s.name,
+      image: `${imgRepo}:v${rev}.0.${Math.floor(r() * 9)}`,
+      lastStatus: cStatus,
+      healthStatus: health,
+      exitCode: stopped ? (opts.exitCode ?? 0) : null,
+      reason: stopped && opts.exitCode === 137 ? 'OutOfMemoryError: Container killed due to memory usage' : null,
+      runtimeId: cStatus === 'PENDING' ? null : `${id}-${Math.floor(r() * 9e9)}`,
+      execAgentStatus: cStatus === 'RUNNING' && s.enableExecuteCommand ? 'RUNNING' : null,
+    },
+    {
+      name: 'otel-collector',
+      image: 'public.ecr.aws/aws-observability/aws-otel-collector:v0.40.0',
+      lastStatus: cStatus,
+      healthStatus: 'UNKNOWN',
+      exitCode: stopped ? 0 : null,
+      reason: null,
+      runtimeId: cStatus === 'PENDING' ? null : `${id}-${Math.floor(r() * 9e9)}`,
+      execAgentStatus: cStatus === 'RUNNING' && s.enableExecuteCommand ? 'RUNNING' : null,
+    },
+  ]
+  return {
+    arn: `arn:aws:ecs:${svc.region}:${account}:task/${s.clusterName}/${id}`,
+    id,
+    clusterName: s.clusterName,
+    serviceName: s.name,
+    lastStatus: status,
+    desiredStatus: stopped ? 'STOPPED' : 'RUNNING',
+    healthStatus: health,
+    taskDefinition: taskDefArn(svc.region, account, s.name, rev),
+    revision: rev,
+    availabilityZone: az,
+    privateIp: `10.${svc.env === 'prod' ? 20 : 40}.${Math.floor(r() * 60) + 10}.${Math.floor(r() * 240) + 10}`,
+    cpu: String(svc.cpuUnits),
+    memory: String(svc.memMiB),
+    startedAt: status === 'PROVISIONING' ? null : startedAt,
+    stoppedAt: stopped ? startedAt + 6 * 60e3 : null,
+    stopReason: stopped ? (opts.stopReason ?? 'Task stopped by user.') : null,
+    stopCode: stopped ? (opts.exitCode === 137 ? 'EssentialContainerExited' : 'UserInitiated') : null,
+    launchType: 'FARGATE',
+    enableExecuteCommand: s.enableExecuteCommand,
+    containers,
+  }
+}
+
