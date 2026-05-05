@@ -322,3 +322,48 @@ function makeService(name: string, cluster: string, p: ProfileSeed, region: stri
   return svc
 }
 
+/** Clusters of one profile and region. The world builds on first use. */
+export function world(profile: string, region: string): MockCluster[] {
+  const key = `${profile}/${region}`
+  let w = WORLD.get(key)
+  if (w) return w
+  const p = seedOf(profile)
+  const ri = Math.max(0, p.regions.indexOf(region))
+  const layout = ri === 0 ? LAYOUT.primary : LAYOUT.secondary
+  w = layout.map(([base, names]) => {
+    const name = `${base}-${p.env}${ri === 0 ? '' : '-' + region.split('-')[0]}`
+    return {
+      name,
+      arn: `arn:aws:ecs:${region}:${p.accountId}:cluster/${name}`,
+      capacityProviders: base === 'core' ? ['FARGATE', 'FARGATE_SPOT'] : ['FARGATE'],
+      containerInsights: base === 'core',
+      services: names.map((n) => makeService(n, name, p, region)),
+    }
+  })
+  WORLD.set(key, w)
+  return w
+}
+
+export function findService(profile: string, region: string, cluster: string, service: string): MockService | undefined {
+  return world(profile, region)
+    .find((c) => c.name === cluster)
+    ?.services.find((s) => s.summary.name === service)
+}
+
+/** Finds a task by ARN or ID, in active and stopped lists. */
+export function findTask(profile: string, region: string, cluster: string, taskArn: string): { svc: MockService; task: Task } | undefined {
+  const c = world(profile, region).find((x) => x.name === cluster)
+  for (const svc of c?.services ?? []) {
+    const task = [...svc.tasks, ...svc.stopped].find((t) => t.arn === taskArn || t.id === taskArn)
+    if (task) return { svc, task }
+  }
+  return undefined
+}
+
+/** Updates running and pending counts from the task lists. Call it after you change tasks. */
+export function recompute(svc: MockService) {
+  const s = svc.summary
+  s.running = svc.tasks.filter((t) => t.lastStatus === 'RUNNING').length
+  s.pending = svc.tasks.filter((t) => t.lastStatus !== 'RUNNING').length
+}
+
