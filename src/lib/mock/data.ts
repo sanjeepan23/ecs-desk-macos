@@ -367,3 +367,77 @@ export function recompute(svc: MockService) {
   s.pending = svc.tasks.filter((t) => t.lastStatus !== 'RUNNING').length
 }
 
+function clusterSummary(c: MockCluster): ClusterSummary {
+  return {
+    arn: c.arn,
+    name: c.name,
+    status: 'ACTIVE',
+    activeServices: c.services.length,
+    runningTasks: c.services.reduce((a, s) => a + s.summary.running, 0),
+    pendingTasks: c.services.reduce((a, s) => a + s.summary.pending, 0),
+    capacityProviders: c.capacityProviders,
+    containerInsights: c.containerInsights,
+  }
+}
+
+const clone = <T>(v: T): T => structuredClone(v)
+
+/* ---------- Task definition ---------- */
+
+export function taskDefinitionJson(profile: string, region: string, taskDefinition: string): Record<string, unknown> | null {
+  const short = taskDefinition.split('/').pop() ?? taskDefinition
+  const [family, revStr] = short.split(':')
+  const svc = world(profile, region)
+    .flatMap((c) => c.services)
+    .find((s) => s.summary.name === family)
+  if (!svc) return null
+  const rev = Number(revStr) || Number(svc.summary.taskDefinitionShort.split(':')[1])
+  const account = accountOf(profile)
+  return {
+    taskDefinitionArn: taskDefArn(region, account, family, rev),
+    family,
+    revision: rev,
+    status: 'ACTIVE',
+    networkMode: 'awsvpc',
+    requiresCompatibilities: ['FARGATE'],
+    cpu: String(svc.cpuUnits),
+    memory: String(svc.memMiB),
+    executionRoleArn: `arn:aws:iam::${account}:role/${family}-exec`,
+    taskRoleArn: `arn:aws:iam::${account}:role/${family}-task`,
+    containerDefinitions: [
+      {
+        name: family,
+        image: `${account}.dkr.ecr.${region}.amazonaws.com/${family}:v${rev}.0.2`,
+        essential: true,
+        cpu: svc.cpuUnits - 128,
+        memory: svc.memMiB - 256,
+        portMappings: svc.port ? [{ containerPort: svc.port, protocol: 'tcp' }] : [],
+        environment: [
+          { name: 'APP_ENV', value: svc.env },
+          { name: 'LOG_LEVEL', value: 'info' },
+        ],
+        secrets: [{ name: 'DATABASE_URL', valueFrom: `arn:aws:ssm:${region}:${account}:parameter/${svc.env}/${family}/db` }],
+        logConfiguration: {
+          logDriver: 'awslogs',
+          options: { 'awslogs-group': `/ecs/${family}`, 'awslogs-region': region, 'awslogs-stream-prefix': 'ecs' },
+        },
+        ...(svc.port
+          ? { healthCheck: { command: ['CMD-SHELL', `curl -f http://localhost:${svc.port}/health || exit 1`], interval: 30, retries: 3 } }
+          : {}),
+      },
+      {
+        name: 'otel-collector',
+        image: 'public.ecr.aws/aws-observability/aws-otel-collector:v0.40.0',
+        essential: false,
+        cpu: 128,
+        memory: 256,
+        logConfiguration: {
+          logDriver: 'awslogs',
+          options: { 'awslogs-group': `/ecs/${family}`, 'awslogs-region': region, 'awslogs-stream-prefix': 'otel' },
+        },
+      },
+    ],
+    registeredAt: new Date(T0 - 86400e3).toISOString(),
+  }
+}
+
