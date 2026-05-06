@@ -441,3 +441,50 @@ export function taskDefinitionJson(profile: string, region: string, taskDefiniti
   }
 }
 
+/* ---------- Settings and profiles ---------- */
+
+const SETTINGS_KEY = 'ecsdesk-mock-settings'
+
+function defaultSettings(): Settings {
+  return {
+    pollFocusedSecs: 3,
+    pollBackgroundSecs: 45,
+    confirmProdByTyping: true,
+    telemetry: false,
+    theme: 'system',
+    profileRegions: {},
+    readOnly: {},
+    lastProfile: null,
+    lastRegion: null,
+    detectedProd: [],
+  }
+}
+
+function loadSettings(): Settings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY)
+    if (raw) return { ...defaultSettings(), ...JSON.parse(raw) }
+  } catch {
+    // Storage can be blocked. The defaults then apply.
+  }
+  return defaultSettings()
+}
+
+let settings: Settings = loadSettings()
+
+function saveSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
+  } catch {
+    // Storage can be blocked. Settings then last for this page load only.
+  }
+}
+
+export function mockSettings(): Settings {
+  return settings
+}
+
+export function isReadOnly(profile: string): boolean {
+  return settings.readOnly[profile] ?? seedOf(profile).isProd
+}
+
