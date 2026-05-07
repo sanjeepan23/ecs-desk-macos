@@ -535,3 +535,52 @@ let apiCalls = 38
 let lastPolledAt: number | null = null
 let lastError: string | null = null
 
+function pollStatus(): PollStatus {
+  return {
+    polledAt: lastPolledAt,
+    apiCallsPerMin: apiCalls,
+    budgetPct: Math.round(apiCalls / 2.4),
+    throttled,
+    lastError,
+  }
+}
+
+function buildUpdate(f: Focus): EcsUpdate {
+  const clusters = world(f.profile, f.region)
+  const svc = f.cluster && f.service ? findService(f.profile, f.region, f.cluster, f.service) : undefined
+  return {
+    profile: f.profile,
+    region: f.region,
+    polledAt: Date.now(),
+    clusters: clusters.map(clusterSummary),
+    services: clone(clusters.flatMap((c) => c.services.map((s) => s.summary))),
+    serviceDetail: svc ? clone({ service: svc.summary, events: svc.events }) : null,
+    tasks: svc ? clone(svc.tasks) : null,
+  }
+}
+
+function tick() {
+  if (!focus) return
+  apiCalls = Math.max(24, Math.min(70, apiCalls + Math.round((Math.random() - 0.5) * 6)))
+  if (expired.has(focus.profile)) {
+    lastError = `The SSO session for ${focus.profile} has expired.`
+    emit(EVENTS.pollStatus, pollStatus())
+    return
+  }
+  lastError = null
+  const u = buildUpdate(focus)
+  lastPolledAt = u.polledAt
+  emit(EVENTS.ecsUpdate, u)
+  emit(EVENTS.pollStatus, pollStatus())
+}
+
+function restartLoop() {
+  if (timer) clearInterval(timer)
+  timer = setInterval(tick, Math.max(1, settings.pollFocusedSecs) * 1000)
+}
+
+/** Emits an update for the current focus now. Call it after a mock action changes the world. */
+export function emitNow() {
+  setTimeout(tick, 0)
+}
+
