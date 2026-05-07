@@ -584,3 +584,135 @@ export function emitNow() {
   setTimeout(tick, 0)
 }
 
+/* ---------- Command handler ---------- */
+
+function arg<T>(args: Record<string, unknown>, key: string): T {
+  return args[key] as T
+}
+
+export async function handleData(cmd: string, args: Record<string, unknown>): Promise<unknown> {
+  switch (cmd) {
+    case 'get_settings':
+      await delay(30)
+      return clone(settings)
+    case 'update_settings': {
+      await delay(40)
+      const prev = settings.pollFocusedSecs
+      // Same as the backend: the UI copy can be stale, so keep the safety fields.
+      settings = {
+        ...defaultSettings(),
+        ...arg<Settings>(args, 'settings'),
+        readOnly: settings.readOnly,
+        detectedProd: settings.detectedProd,
+      }
+      saveSettings()
+      if (prev !== settings.pollFocusedSecs && focus) restartLoop()
+      return clone(settings)
+    }
+    case 'list_profiles':
+      await delay(60)
+      return PROFILES.map(toProfile)
+    case 'set_read_only': {
+      await delay(40)
+      const profile = arg<string>(args, 'profile')
+      settings = { ...settings, readOnly: { ...settings.readOnly, [profile]: arg<boolean>(args, 'value') } }
+      saveSettings()
+      return toProfile(seedOf(profile))
+    }
+    case 'sso_login':
+      await delay(900)
+      expired.delete(arg<string>(args, 'profile'))
+      emitNow()
+      return null
+    case 'whoami': {
+      const profile = arg<string>(args, 'profile')
+      checkSession(profile)
+      await delay(80)
+      const account = accountOf(profile)
+      return {
+        account,
+        arn: `arn:aws:sts::${account}:assumed-role/AWSReservedSSO_AdministratorAccess_4f2a/dev@example.com`,
+        userId: `AROA${hex(rng(profile), 16).toUpperCase()}:dev@example.com`,
+      }
+    }
+    case 'list_clusters': {
+      const profile = arg<string>(args, 'profile')
+      checkSession(profile)
+      await delay(120)
+      return world(profile, arg<string>(args, 'region')).map(clusterSummary)
+    }
+    case 'list_services': {
+      const profile = arg<string>(args, 'profile')
+      checkSession(profile)
+      await delay(140)
+      const c = world(profile, arg<string>(args, 'region')).find((x) => x.name === arg<string>(args, 'cluster'))
+      if (!c) throw mockError('notFound', `Cluster ${arg<string>(args, 'cluster')} was not found.`)
+      return clone(c.services.map((s) => s.summary))
+    }
+    case 'get_service': {
+      const profile = arg<string>(args, 'profile')
+      checkSession(profile)
+      await delay(100)
+      const svc = findService(profile, arg(args, 'region'), arg(args, 'cluster'), arg(args, 'service'))
+      if (!svc) throw mockError('notFound', `Service ${arg<string>(args, 'service')} was not found.`)
+      const detail: ServiceDetail = { service: svc.summary, events: svc.events }
+      return clone(detail)
+    }
+    case 'list_tasks': {
+      const profile = arg<string>(args, 'profile')
+      checkSession(profile)
+      await delay(140)
+      const c = world(profile, arg<string>(args, 'region')).find((x) => x.name === arg<string>(args, 'cluster'))
+      if (!c) throw mockError('notFound', `Cluster ${arg<string>(args, 'cluster')} was not found.`)
+      const service = arg<string | null>(args, 'service')
+      const stopped = arg<string>(args, 'desiredStatus') === 'STOPPED'
+      const svcs = c.services.filter((s) => !service || s.summary.name === service)
+      return clone(svcs.flatMap((s) => (stopped ? s.stopped : s.tasks)))
+    }
+    case 'get_task': {
+      const profile = arg<string>(args, 'profile')
+      checkSession(profile)
+      await delay(90)
+      const hit = findTask(profile, arg(args, 'region'), arg(args, 'cluster'), arg(args, 'taskArn'))
+      if (!hit) throw mockError('notFound', 'The task was not found. ECS keeps stopped tasks for about one hour.')
+      return clone(hit.task)
+    }
+    case 'get_task_definition': {
+      const profile = arg<string>(args, 'profile')
+      checkSession(profile)
+      await delay(110)
+      const td = taskDefinitionJson(profile, arg(args, 'region'), arg(args, 'taskDefinition'))
+      if (!td) throw mockError('notFound', `Task definition ${arg<string>(args, 'taskDefinition')} was not found.`)
+      return td
+    }
+    case 'list_task_definition_revisions': {
+      const profile = arg<string>(args, 'profile')
+      const region = arg<string>(args, 'region')
+      const family = arg<string>(args, 'family')
+      checkSession(profile)
+      await delay(90)
+      const svc = world(profile, region)
+        .flatMap((c) => c.services)
+        .find((s) => s.summary.name === family)
+      if (!svc) return []
+      const top = Math.max(...svc.summary.deployments.map((d) => Number(d.taskDefinition.split(':').pop())), 1)
+      return Array.from({ length: Math.min(10, top) }, (_, k) => taskDefArn(region, accountOf(profile), family, top - k))
+    }
+    case 'set_focus': {
+      focus = arg<Focus>(args, 'focus')
+      restartLoop()
+      emitNow()
+      return null
+    }
+    case 'poll_status':
+      return pollStatus()
+    case 'refresh_now':
+      await delay(150)
+      apiCalls = 30 + Math.floor(Math.random() * 20)
+      tick()
+      return null
+    default:
+      return undefined
+  }
+}
+
