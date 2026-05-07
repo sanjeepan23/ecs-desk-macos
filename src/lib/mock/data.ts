@@ -488,3 +488,50 @@ export function isReadOnly(profile: string): boolean {
   return settings.readOnly[profile] ?? seedOf(profile).isProd
 }
 
+function toProfile(p: ProfileSeed): Profile {
+  const regions = settings.profileRegions[p.name]?.length ? settings.profileRegions[p.name] : p.regions
+  return {
+    name: p.name,
+    accountId: p.accountId,
+    region: p.regions[0],
+    regions,
+    authKind: p.authKind,
+    isProd: p.isProd,
+    readOnly: isReadOnly(p.name),
+  }
+}
+
+/* ---------- Session and throttle simulation ---------- */
+
+const expired = new Set<string>()
+let throttled = false
+
+export function mockError(kind: AppError['kind'], message: string): AppError {
+  return { kind, message }
+}
+
+/** Throws an auth error when the SSO session of the profile is expired. */
+export function checkSession(profile: string) {
+  if (expired.has(profile)) throw mockError('auth', `The SSO session for ${profile} has expired. Run "Log in" to start a new one.`)
+}
+
+/** Dev helpers. In the browser console: `__ecsMock.expireSession('demo-prod')` or `__ecsMock.setThrottled(true)`. */
+export const mockControls = {
+  expireSession(profile: string) {
+    expired.add(profile)
+  },
+  setThrottled(v: boolean) {
+    throttled = v
+  },
+}
+
+if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>).__ecsMock = mockControls
+
+/* ---------- Poller ---------- */
+
+let focus: Focus | null = null
+let timer: ReturnType<typeof setInterval> | null = null
+let apiCalls = 38
+let lastPolledAt: number | null = null
+let lastError: string | null = null
+
