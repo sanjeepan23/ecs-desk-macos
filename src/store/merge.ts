@@ -48,3 +48,32 @@ export function replaceService(list: ServiceSummary[], svc: ServiceSummary): Ser
   return next
 }
 
+/** Focus for the poller from the current view. */
+export function focusFor(
+  profile: string | null,
+  region: string | null,
+  view: { name: string; cluster?: string; service?: string | null },
+): Focus | null {
+  if (!profile || !region) return null
+  const cluster = 'cluster' in view && view.cluster ? view.cluster : null
+  const service = cluster && 'service' in view && view.service ? view.service : null
+  return { profile, region, cluster, service }
+}
+
+export function sameFocus(a: Focus | null, b: Focus | null): boolean {
+  if (!a || !b) return a === b
+  return a.profile === b.profile && a.region === b.region && a.cluster === b.cluster && a.service === b.service
+}
+
+/** Flattens events keyed by "cluster/service" into rows, newest first. */
+export function flattenEvents(
+  events: Record<string, ServiceEvent[]>,
+): { event: ServiceEvent; cluster: string; service: string }[] {
+  const rows = Object.entries(events).flatMap(([key, list]) => {
+    const i = key.indexOf('/')
+    const cluster = key.slice(0, i)
+    const service = key.slice(i + 1)
+    return list.map((event) => ({ event, cluster, service }))
+  })
+  return rows.sort((a, b) => (b.event.createdAt ?? 0) - (a.event.createdAt ?? 0))
+}
