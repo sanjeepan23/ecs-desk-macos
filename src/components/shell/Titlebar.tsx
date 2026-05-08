@@ -164,3 +164,46 @@ function ProfilePicker() {
   )
 }
 
+function ThemeToggle() {
+  const dark = useIsDark()
+  const save = useApp((s) => s.saveSettings)
+  return (
+    <Button variant="ghost" size="icon-sm" aria-label={dark ? 'Use light theme' : 'Use dark theme'} onClick={() => void save({ theme: dark ? 'light' : 'dark' })}>
+      <Icon icon={dark ? Sun03Icon : Moon02Icon} />
+    </Button>
+  )
+}
+
+export function Titlebar() {
+  const setPalette = usePalette((s) => s.setOpen)
+  return (
+    <header
+      data-tauri-drag-region
+      className={cn('flex h-11 min-w-0 items-center gap-2.5 border-b bg-sidebar pr-3 select-none', isTauri && isMac ? 'pl-[78px]' : 'pl-3')}
+    >
+      <div data-tauri-drag-region className="flex items-center gap-2 font-bold tracking-tight whitespace-nowrap">
+        <div data-tauri-drag-region className="grid size-[22px] place-items-center rounded-[7px] bg-primary text-[11px] font-bold text-primary-foreground">
+          E
+        </div>
+        <span data-tauri-drag-region className="hidden sm:inline">
+          ECS Desk
+        </span>
+      </div>
+      <div data-tauri-drag-region className="min-w-2 flex-1" />
+      <button
+        type="button"
+        onClick={() => setPalette(true)}
+        aria-label="Search"
+        className="flex h-[30px] w-[min(360px,34vw)] items-center gap-2 rounded-xl border bg-muted px-2.5 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Icon icon={Search01Icon} />
+        <span className="hidden truncate text-[13px] md:inline">Search clusters, services, tasks</span>
+        <kbd className="ml-auto rounded-md border bg-background px-1.5 font-mono text-[11px]">{isMac ? '⌘K' : 'Ctrl K'}</kbd>
+      </button>
+      <div data-tauri-drag-region className="min-w-2 flex-1" />
+      <RegionPicker />
+      <ProfilePicker />
+      <ThemeToggle />
+    </header>
+  )
+}
