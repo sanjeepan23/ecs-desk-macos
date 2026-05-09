@@ -245,3 +245,62 @@ export function Toolbar({ children }: { children: ReactNode }) {
   return <div className="mb-3 flex flex-wrap items-center gap-2">{children}</div>
 }
 
+export function EmptyState({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn('rounded-2xl border bg-card p-8 text-center text-muted-foreground', className)}>{children}</div>
+}
+
+/** Inline error with a "Log in" button for auth errors and a "Try again" button for others. */
+export function ErrorState({ error, onRetry }: { error: AppError; onRetry?: () => void }) {
+  const profile = useApp((s) => s.profile)
+  const login = useApp((s) => s.login)
+  const auth = error.kind === 'auth'
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-2xl border bg-card p-8 text-center">
+      <Icon icon={Alert02Icon} className="text-crit" size={20} />
+      <div>
+        <div className="font-semibold">{auth ? `Your session for ${profile} has expired.` : 'The data did not load.'}</div>
+        <div className="mt-1 max-w-md text-[12.5px] text-muted-foreground">{auth ? 'Log in again to continue.' : error.message}</div>
+      </div>
+      {auth ? (
+        <Button size="sm" onClick={() => void login()}>
+          <Icon icon={Login01Icon} />
+          Log in
+        </Button>
+      ) : (
+        onRetry && (
+          <Button size="sm" variant="outline" onClick={onRetry}>
+            <Icon icon={RefreshIcon} />
+            Try again
+          </Button>
+        )
+      )}
+    </div>
+  )
+}
+
+export function Banner({
+  tone,
+  icon,
+  children,
+  action,
+}: {
+  tone: 'warn' | 'crit' | 'info'
+  icon: IconSvgElement
+  children: ReactNode
+  action?: ReactNode
+}) {
+  return (
+    <div
+      role="status"
+      className={cn(
+        'mb-4 flex flex-wrap items-center gap-2.5 rounded-2xl px-3.5 py-2.5',
+        tone === 'warn' ? 'bg-warn-bg' : tone === 'crit' ? 'bg-crit-bg' : 'bg-info-bg',
+      )}
+    >
+      <Icon icon={icon} className={TONE_TEXT[tone]} />
+      <div className="min-w-[200px] flex-1">{children}</div>
+      {action}
+    </div>
+  )
+}
+
