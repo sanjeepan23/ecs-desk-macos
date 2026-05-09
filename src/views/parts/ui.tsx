@@ -198,3 +198,50 @@ export function Panel({
   )
 }
 
+export function KV({ rows }: { rows: [ReactNode, ReactNode][] }) {
+  return (
+    <dl className="grid grid-cols-1 gap-x-3 gap-y-2 text-[13px] sm:grid-cols-[140px_minmax(0,1fr)]">
+      {rows.map(([k, v], i) => (
+        <div key={i} className="contents">
+          <dt className="text-muted-foreground">{k}</dt>
+          <dd className="mb-1.5 min-w-0 [overflow-wrap:anywhere] sm:mb-0">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+export function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+}: {
+  value: T
+  onChange: (v: T) => void
+  options: { value: T; label: ReactNode }[]
+  label: string
+}) {
+  return (
+    <ToggleGroup
+      type="single"
+      size="sm"
+      variant="outline"
+      spacing={0}
+      aria-label={label}
+      value={value}
+      onValueChange={(v) => v && onChange(v as T)}
+    >
+      {options.map((o) => (
+        <ToggleGroupItem key={o.value} value={o.value} className="px-3 text-[12.5px] data-[state=on]:bg-background data-[state=on]:shadow-sm dark:data-[state=on]:bg-muted">
+          {o.label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
+  )
+}
+
+export function Toolbar({ children }: { children: ReactNode }) {
+  return <div className="mb-3 flex flex-wrap items-center gap-2">{children}</div>
+}
+
