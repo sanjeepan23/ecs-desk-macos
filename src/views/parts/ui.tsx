@@ -152,3 +152,49 @@ export function PageHeader({
   )
 }
 
+export function SectionTitle({ children, right }: { children: ReactNode; right?: ReactNode }) {
+  return (
+    <div className="mt-[22px] mb-2.5 flex items-center gap-2 text-[13px] font-semibold">
+      {children}
+      {right}
+    </div>
+  )
+}
+
+export function StatCard({ label, value, hint, valueClass }: { label: string; value: ReactNode; hint?: ReactNode; valueClass?: string }) {
+  return (
+    <Card size="sm" className="gap-0 py-4">
+      <CardContent>
+        <div className="text-xs text-muted-foreground">{label}</div>
+        <div className={cn('num mt-0.5 text-[26px] font-semibold tracking-tight', valueClass)}>{value}</div>
+        {hint && <div className="mt-0.5 text-xs text-muted-foreground">{hint}</div>}
+      </CardContent>
+    </Card>
+  )
+}
+
+export function Panel({
+  title,
+  right,
+  children,
+  flush,
+  className,
+}: {
+  title: ReactNode
+  right?: ReactNode
+  children: ReactNode
+  /** Content touches the card edges, for lists. */
+  flush?: boolean
+  className?: string
+}) {
+  return (
+    <Card size="sm" className={cn('min-w-0 gap-3', flush && 'pb-0', className)}>
+      <CardHeader className="flex items-center gap-2">
+        <CardTitle className="flex flex-1 items-center gap-2 text-[13px] font-semibold">{title}</CardTitle>
+        {right && <div className="ml-auto flex items-center gap-2 text-sm font-normal">{right}</div>}
+      </CardHeader>
+      <CardContent className={cn(flush && 'px-0')}>{children}</CardContent>
+    </Card>
+  )
+}
+
