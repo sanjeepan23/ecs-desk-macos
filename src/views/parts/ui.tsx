@@ -88,3 +88,67 @@ export function Tag({ children, className }: { children: ReactNode; className?: 
   )
 }
 
+export function UsageBar({ value, tone, className }: { value: number; tone: Tone | 'fg'; className?: string }) {
+  return (
+    <div className={cn('h-1.5 min-w-16 overflow-hidden rounded-full bg-muted', className)}>
+      <span
+        className={cn('block h-full rounded-full transition-[width] duration-500', tone === 'fg' ? 'bg-foreground' : TONE_BG[tone])}
+        style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
+      />
+    </div>
+  )
+}
+
+export interface Crumb {
+  label: string
+  onClick?: () => void
+}
+
+export function Crumbs({ items }: { items: Crumb[] }) {
+  return (
+    <nav aria-label="Breadcrumb" className="mb-2.5 flex flex-wrap items-center gap-1.5 text-[12.5px] text-muted-foreground">
+      {items.map((c, i) => (
+        <span key={i} className="inline-flex items-center gap-1.5">
+          {i > 0 && <Icon icon={ArrowRight01Icon} size={12} />}
+          {c.onClick ? (
+            <button type="button" className="rounded-sm hover:text-foreground hover:underline" onClick={c.onClick}>
+              {c.label}
+            </button>
+          ) : (
+            <span>{c.label}</span>
+          )}
+        </span>
+      ))}
+    </nav>
+  )
+}
+
+/** Breadcrumb that starts with the profile and region. */
+export function ScopeCrumbs({ items }: { items: Crumb[] }) {
+  const profile = useApp((s) => s.profile)
+  const region = useApp((s) => s.region)
+  return <Crumbs items={[{ label: profile ?? '—' }, { label: region ?? '—' }, ...items]} />
+}
+
+export function PageHeader({
+  title,
+  sub,
+  actions,
+  mono,
+}: {
+  title: ReactNode
+  sub?: ReactNode
+  actions?: ReactNode
+  mono?: boolean
+}) {
+  return (
+    <div className="mb-4 flex flex-wrap items-start gap-4">
+      <div className="min-w-0">
+        <h1 className={cn('text-[22px] font-semibold tracking-tight text-balance break-all', mono && 'font-mono text-[19px]')}>{title}</h1>
+        {sub && <div className="mt-1 flex flex-wrap items-center gap-2.5 text-muted-foreground">{sub}</div>}
+      </div>
+      {actions && <div className="ml-auto flex flex-wrap gap-2">{actions}</div>}
+    </div>
+  )
+}
+
