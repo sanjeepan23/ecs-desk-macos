@@ -304,3 +304,59 @@ export function Banner({
   )
 }
 
+export function ReadOnlyBanner() {
+  const readOnly = useApp(selectReadOnly)
+  const profile = useApp((s) => s.profile)
+  const request = useAllowActions((s) => s.request)
+  if (!readOnly || !profile) return null
+  return (
+    <Banner
+      tone="warn"
+      icon={LockIcon}
+      action={
+        <Button size="sm" variant="outline" className="bg-background" onClick={() => request(profile)}>
+          Allow actions
+        </Button>
+      }
+    >
+      <b>{profile} is read-only.</b> <span className="text-muted-foreground">Deploy, scale, stop, and exec are off for this profile.</span>
+    </Banner>
+  )
+}
+
+/** Button for a write action. It shows a lock icon when the profile is read-only. */
+export function ActionButton({
+  icon,
+  children,
+  ...props
+}: { icon: IconSvgElement; children: ReactNode } & ComponentProps<typeof Button>) {
+  const readOnly = useApp(selectReadOnly)
+  return (
+    <Button variant="outline" {...props} className={cn(readOnly && 'opacity-60', props.className)} aria-label={readOnly && typeof children === 'string' ? `${children} (read-only)` : props['aria-label']}>
+      <Icon icon={readOnly ? LockIcon : icon} />
+      {children}
+    </Button>
+  )
+}
+
+export async function copyText(text: string, what = 'Copied to clipboard') {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success(what)
+  } catch {
+    toast.warning('Copy failed', { description: 'The app has no access to the clipboard.' })
+  }
+}
+
+export function CopyButton({ text, children, size = 'sm' }: { text: string; children: ReactNode; size?: 'sm' | 'default' }) {
+  return (
+    <Button variant="outline" size={size} onClick={() => void copyText(text)}>
+      <Icon icon={Copy01Icon} />
+      {children}
+    </Button>
+  )
+}
+
+export function Mono({ children, className }: { children: ReactNode; className?: string }) {
+  return <span className={cn('font-mono text-xs', className)}>{children}</span>
+}
