@@ -90,3 +90,51 @@ export function ClusterTable({ clusters, services }: { clusters: ClusterSummary[
   )
 }
 
+/* ---------- Services ---------- */
+
+export function ServiceMenu({ svc, trigger = 'icon' }: { svc: ServiceSummary; trigger?: 'icon' | 'button' }) {
+  const navigate = useApp((s) => s.navigate)
+  const readOnly = useApp(selectReadOnly)
+  const actions = useServiceActions()
+  const prevRev = (taskDefRevision(svc.taskDefinition) ?? 1) - 1
+  const lock = (icon: Parameters<typeof Icon>[0]['icon']) => <Icon icon={readOnly ? LockIcon : icon} />
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant={trigger === 'icon' ? 'ghost' : 'outline'} size={trigger === 'icon' ? 'icon-sm' : 'icon'} aria-label={`Actions for ${svc.name}`}>
+          <Icon icon={MoreHorizontalIcon} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-56">
+        <DropdownMenuLabel className="text-xs text-muted-foreground">{svc.name}</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => navigate({ name: 'service', cluster: svc.clusterName, service: svc.name })}>
+          <Icon icon={Layers01Icon} />
+          Open
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => navigate({ name: 'service', cluster: svc.clusterName, service: svc.name, tab: 'logs' })}>
+          <Icon icon={TextAlignLeftIcon} />
+          View logs
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => actions.forceDeploy(svc)}>
+          {lock(Rocket01Icon)}
+          Force new deployment
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => actions.scale(svc)}>
+          {lock(ArrowExpandIcon)}
+          Scale
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => actions.rollback(svc)} disabled={prevRev < 1}>
+          {lock(Undo02Icon)}
+          Roll back to :{prevRev}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => void copyText(svc.arn)}>
+          <Icon icon={Copy01Icon} />
+          Copy ARN
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
