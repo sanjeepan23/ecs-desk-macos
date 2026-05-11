@@ -289,3 +289,33 @@ export interface EventRow {
   service: string
 }
 
+export function EventsTable({ rows, showService = false, empty }: { rows: EventRow[]; showService?: boolean; empty?: string }) {
+  const navigate = useApp((s) => s.navigate)
+  const sorted = [...rows].sort((a, b) => (b.event.createdAt ?? 0) - (a.event.createdAt ?? 0))
+  const cols: Column<EventRow>[] = [
+    {
+      id: 'time',
+      header: 'Time',
+      cell: (r) => (
+        <span className="inline-flex items-center gap-2 font-mono text-xs">
+          <StatusDot tone={eventTone(r.event.message)} />
+          {hms(r.event.createdAt)}
+          <span className="text-muted-foreground">· {ago(r.event.createdAt)}</span>
+        </span>
+      ),
+    },
+    ...(showService ? [{ id: 'svc', header: 'Service', cell: (r: EventRow) => r.service }] : []),
+    { id: 'msg', header: 'Message', className: 'min-w-[280px] whitespace-normal', cell: (r) => r.event.message },
+  ]
+  return (
+    <DataTable
+      rows={sorted}
+      columns={cols}
+      rowKey={(r) => `${r.cluster}/${r.service}/${r.event.id}`}
+      onRowClick={showService ? (r) => navigate({ name: 'service', cluster: r.cluster, service: r.service, tab: 'events' }) : undefined}
+      empty={empty ?? 'No events yet.'}
+      virtualizeAbove={80}
+    />
+  )
+}
+
