@@ -165,3 +165,89 @@ export function ServiceView({
   )
 }
 
+function OverviewTab({ svc, events }: { svc: ServiceSummary; events?: { id: string; createdAt: number | null; message: string }[] }) {
+  const navigate = useApp((s) => s.navigate)
+  const d = primaryDeployment(svc)
+  const ro = rolloutMeta(d?.rolloutState)
+  return (
+    <>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-3.5">
+        <Panel title="Rollout" right={d && <ToneBadge tone={ro.tone}>{ro.label}</ToneBadge>}>
+          <div className="space-y-3">
+            {svc.deployments.map((x) => {
+              const primary = x.status === 'PRIMARY'
+              const tone = primary ? (x.rolloutState === 'IN_PROGRESS' ? 'info' : healthMeta(svc.health).tone === 'crit' ? 'crit' : 'ok') : 'fg'
+              return (
+                <div key={x.id}>
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <Tag>{taskDefShort(x.taskDefinition)}</Tag>
+                    <ToneBadge tone="neutral" dot={false}>
+                      {deploymentStatusLabel(x.status)}
+                    </ToneBadge>
+                    <span className="num ml-auto text-muted-foreground">
+                      {x.running} / {x.desired} running
+                    </span>
+                  </div>
+                  <UsageBar value={pct(x.running, x.desired)} tone={tone} />
+                </div>
+              )
+            })}
+            {!svc.deployments.length && <div className="text-muted-foreground">No deployments.</div>}
+            {d?.rolloutReason && <div className="text-[12.5px] text-muted-foreground">{d.rolloutReason}</div>}
+          </div>
+        </Panel>
+        <Panel title="Details">
+          <KV
+            rows={[
+              ['Cluster', svc.clusterName],
+              ['Launch type', svc.launchType ?? '—'],
+              ['Task definition', <span className="font-mono text-xs">{svc.taskDefinitionShort}</span>],
+              [
+                'Load balancer',
+                svc.loadBalancers.length ? (
+                  svc.loadBalancers.map(targetGroupName).join(', ')
+                ) : (
+                  <span className="text-muted-foreground">None (worker)</span>
+                ),
+              ],
+              [
+                'Exec',
+                svc.enableExecuteCommand ? (
+                  <ToneBadge tone="ok" dot={false}>
+                    Enabled
+                  </ToneBadge>
+                ) : (
+                  <ToneBadge tone="warn" dot={false}>
+                    Off: enableExecuteCommand is false
+                  </ToneBadge>
+                ),
+              ],
+              ['Created', svc.createdAt ? `${dateTime(svc.createdAt)} (${ago(svc.createdAt)})` : '—'],
+            ]}
+          />
+        </Panel>
+      </div>
+      <div className="mt-3.5">
+        <StoppedSummary service={svc} />
+      </div>
+      <div className="mt-3.5">
+        <MetricsSummary service={svc} />
+      </div>
+      <SectionTitle
+        right={
+          <Button variant="ghost" size="xs" onClick={() => navigate({ name: 'service', cluster: svc.clusterName, service: svc.name, tab: 'events' })}>
+            View all
+          </Button>
+        }
+      >
+        Latest events
+      </SectionTitle>
+      {events ? (
+        <EventsTable rows={events.slice(0, 4).map((event) => ({ event, cluster: svc.clusterName, service: svc.name }))} />
+      ) : (
+        <Skeleton className="h-32 rounded-2xl" />
+      )}
+    </>
+  )
+}
+
