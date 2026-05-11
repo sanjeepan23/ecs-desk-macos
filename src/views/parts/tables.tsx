@@ -241,3 +241,51 @@ export function TaskMenu({ task }: { task: Task }) {
   )
 }
 
+export function TaskTable({ tasks, showService = true, empty }: { tasks: Task[]; showService?: boolean; empty?: string }) {
+  const navigate = useApp((s) => s.navigate)
+  const cols: Column<Task>[] = [
+    { id: 'id', header: 'Task', sort: (t) => t.id, cell: (t) => <span className="font-mono text-xs font-semibold">{shortId(t.id)}</span> },
+    ...(showService ? [{ id: 'svc', header: 'Service', sort: (t: Task) => t.serviceName ?? '', cell: (t: Task) => t.serviceName ?? <span className="text-muted-foreground">—</span> }] : []),
+    { id: 'status', header: 'Status', sort: (t) => t.lastStatus, cell: (t) => <TaskStatusBadge status={t.lastStatus} /> },
+    { id: 'health', header: 'Health', sort: (t) => t.healthStatus ?? '', cell: (t) => <HealthCheckBadge health={t.healthStatus} /> },
+    { id: 'rev', header: 'Revision', sort: (t) => t.revision ?? 0, cell: (t) => <span className="font-mono text-xs">{t.revision ?? taskDefRevision(t.taskDefinition) ?? '—'}</span> },
+    { id: 'az', header: 'Zone', sort: (t) => t.availabilityZone ?? '', cell: (t) => <span className="font-mono text-xs">{t.availabilityZone ?? '—'}</span> },
+    { id: 'ip', header: 'Private IP', sort: (t) => t.privateIp ?? '', cell: (t) => <span className="font-mono text-xs">{t.privateIp ?? '—'}</span> },
+    { id: 'size', header: 'Size', cell: (t) => <span className="num text-muted-foreground">{taskSize(t.cpu, t.memory)}</span> },
+    {
+      id: 'started',
+      header: 'Started',
+      sort: (t) => t.startedAt ?? 0,
+      cell: (t) => <span className="text-muted-foreground">{t.startedAt ? ago(t.startedAt) : 'Starting'}</span>,
+    },
+    {
+      id: 'menu',
+      header: <span className="sr-only">Actions</span>,
+      className: 'w-10 py-1.5',
+      cell: (t) => (
+        <StopRowClick>
+          <TaskMenu task={t} />
+        </StopRowClick>
+      ),
+    },
+  ]
+  return (
+    <DataTable
+      rows={tasks}
+      columns={cols}
+      rowKey={(t) => t.arn}
+      rowLabel={(t) => `Open task ${shortId(t.id)}`}
+      onRowClick={(t) => navigate({ name: 'task', cluster: t.clusterName, service: t.serviceName, taskArn: t.arn })}
+      empty={empty ?? 'No tasks match this filter.'}
+    />
+  )
+}
+
+/* ---------- Events ---------- */
+
+export interface EventRow {
+  event: ServiceEvent
+  cluster: string
+  service: string
+}
+
