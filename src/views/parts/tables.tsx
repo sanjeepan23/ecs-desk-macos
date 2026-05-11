@@ -190,3 +190,54 @@ export function ServiceTable({ services, showCluster = true }: { services: Servi
   )
 }
 
+/* ---------- Tasks ---------- */
+
+export function TaskMenu({ task }: { task: Task }) {
+  const navigate = useApp((s) => s.navigate)
+  const readOnly = useApp(selectReadOnly)
+  const actions = useServiceActions()
+  const stopped = task.lastStatus === 'STOPPED'
+  const container = pickContainer(task)?.name
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon-sm" aria-label={`Actions for task ${shortId(task.id)}`}>
+          <Icon icon={MoreHorizontalIcon} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-56">
+        <DropdownMenuLabel className="font-mono text-xs text-muted-foreground">{shortId(task.id)}</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => navigate({ name: 'task', cluster: task.clusterName, service: task.serviceName, taskArn: task.arn })}>
+          <Icon icon={CubeIcon} />
+          Open
+        </DropdownMenuItem>
+        {!stopped && (
+          <DropdownMenuItem onSelect={() => actions.exec(task, container)}>
+            <Icon icon={readOnly ? LockIcon : ComputerTerminal01Icon} />
+            Exec into {container ?? 'container'}
+          </DropdownMenuItem>
+        )}
+        {task.serviceName && (
+          <DropdownMenuItem onSelect={() => navigate({ name: 'service', cluster: task.clusterName, service: task.serviceName!, tab: 'logs' })}>
+            <Icon icon={TextAlignLeftIcon} />
+            View logs
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onSelect={() => void copyText(task.arn)}>
+          <Icon icon={Copy01Icon} />
+          Copy ARN
+        </DropdownMenuItem>
+        {!stopped && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onSelect={() => actions.stopTask(task)}>
+              <Icon icon={readOnly ? LockIcon : StopIcon} />
+              Stop task
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
