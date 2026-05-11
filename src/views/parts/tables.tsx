@@ -138,3 +138,55 @@ export function ServiceMenu({ svc, trigger = 'icon' }: { svc: ServiceSummary; tr
   )
 }
 
+export function TaskCount({ svc }: { svc: ServiceSummary }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <UsageBar className="w-[70px]" value={pct(svc.running, svc.desired)} tone={healthMeta(svc.health).tone} />
+      <span className="num">
+        {svc.running}/{svc.desired}
+      </span>
+      {svc.pending > 0 && <span className="num text-muted-foreground">+{svc.pending}</span>}
+    </div>
+  )
+}
+
+export function ServiceTable({ services, showCluster = true }: { services: ServiceSummary[]; showCluster?: boolean }) {
+  const navigate = useApp((s) => s.navigate)
+  const cols: Column<ServiceSummary>[] = [
+    { id: 'name', header: 'Service', sort: (s) => s.name, cell: (s) => <span className="font-semibold">{s.name}</span> },
+    ...(showCluster
+      ? [{ id: 'cluster', header: 'Cluster', sort: (s: ServiceSummary) => s.clusterName, cell: (s: ServiceSummary) => <span className="text-muted-foreground">{s.clusterName}</span> }]
+      : []),
+    { id: 'status', header: 'Status', sort: (s) => ['failing', 'degraded', 'deploying', 'healthy'].indexOf(s.health), cell: (s) => <HealthBadge health={s.health} /> },
+    { id: 'tasks', header: 'Tasks', sort: (s) => s.running, cell: (s) => <TaskCount svc={s} /> },
+    { id: 'td', header: 'Task definition', sort: (s) => s.taskDefinitionShort, cell: (s) => <span className="font-mono text-xs">{s.taskDefinitionShort}</span> },
+    { id: 'launch', header: 'Launch type', cell: (s) => <span className="text-muted-foreground">{s.launchType ?? '—'}</span> },
+    {
+      id: 'deploy',
+      header: 'Last deploy',
+      sort: (s) => primaryDeployment(s)?.createdAt ?? 0,
+      cell: (s) => <span className="text-muted-foreground">{ago(primaryDeployment(s)?.createdAt)}</span>,
+    },
+    {
+      id: 'menu',
+      header: <span className="sr-only">Actions</span>,
+      className: 'w-10 py-1.5',
+      cell: (s) => (
+        <StopRowClick>
+          <ServiceMenu svc={s} />
+        </StopRowClick>
+      ),
+    },
+  ]
+  return (
+    <DataTable
+      rows={services}
+      columns={cols}
+      rowKey={(s) => s.arn}
+      rowLabel={(s) => `Open service ${s.name}`}
+      onRowClick={(s) => navigate({ name: 'service', cluster: s.clusterName, service: s.name })}
+      empty="No services match this filter."
+    />
+  )
+}
+
