@@ -375,3 +375,37 @@ function DeploymentsTab({ svc }: { svc: ServiceSummary }) {
   )
 }
 
+function ServiceLogs({ svc }: { svc: ServiceSummary }) {
+  // Keep the array stable across polls, so the log tail does not restart on each update.
+  const key = `${svc.arn}@${svc.taskDefinition}`
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const list = useMemo(() => [svc], [key])
+  return <LogsPanel services={list} />
+}
+
+function ConfigTab({ svc }: { svc: ServiceSummary }) {
+  const profile = useApp((s) => s.profile)
+  const region = useApp((s) => s.region)
+  const td = useAsync<Record<string, unknown>>(
+    profile && region ? () => api.getTaskDefinition(profile, region, svc.taskDefinition) : null,
+    [profile, region, svc.taskDefinition],
+  )
+  return (
+    <>
+      <Toolbar>
+        <Tag>{svc.taskDefinitionShort}</Tag>
+        <span className="text-[12.5px] text-muted-foreground">Read-only in v1. Editing comes later.</span>
+        <div className="ml-auto">{td.data && <CopyButton text={JSON.stringify(td.data, null, 2)}>Copy JSON</CopyButton>}</div>
+      </Toolbar>
+      {td.error && !td.data ? (
+        <ErrorState error={td.error} onRetry={td.reload} />
+      ) : !td.data ? (
+        <Skeleton className="h-80 rounded-2xl" />
+      ) : Object.keys(td.data).length ? (
+        <JsonView value={td.data} />
+      ) : (
+        <EmptyState>The task definition is empty.</EmptyState>
+      )}
+    </>
+  )
+}
