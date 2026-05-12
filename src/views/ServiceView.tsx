@@ -251,3 +251,127 @@ function OverviewTab({ svc, events }: { svc: ServiceSummary; events?: { id: stri
   )
 }
 
+function TasksTab({ svc, active, initialState }: { svc: ServiceSummary; active: Task[]; initialState: 'RUNNING' | 'STOPPED' }) {
+  const [state, setState] = useState<'RUNNING' | 'STOPPED'>(initialState)
+  const profile = useApp((s) => s.profile)
+  const region = useApp((s) => s.region)
+  const polledAt = useApp((s) => s.polledAt)
+  const tick = polledAt ? Math.floor(polledAt / 15_000) : 0
+  const stopped = useAsync<Task[]>(
+    profile && region ? () => api.listTasks(profile, region, svc.clusterName, svc.name, 'STOPPED') : null,
+    [profile, region, svc.clusterName, svc.name, tick],
+  )
+  return (
+    <>
+      <Toolbar>
+        <Segmented
+          label="Task state"
+          value={state}
+          onChange={setState}
+          options={[
+            { value: 'RUNNING', label: `Active ${active.length}` },
+            { value: 'STOPPED', label: stopped.data ? `Stopped ${stopped.data.length}` : 'Stopped' },
+          ]}
+        />
+      </Toolbar>
+      {state === 'RUNNING' ? (
+        <TaskTable tasks={active} showService={false} empty="No active tasks." />
+      ) : stopped.error && !stopped.data ? (
+        <ErrorState error={stopped.error} onRetry={stopped.reload} />
+      ) : !stopped.data ? (
+        <Skeleton className="h-40 rounded-2xl" />
+      ) : (
+        <>
+          <StoppedGroups service={svc} />
+          <TaskTable tasks={stopped.data} showService={false} empty="No stopped tasks. ECS keeps stopped tasks for about one hour." />
+        </>
+      )}
+    </>
+  )
+}
+
+function DeploymentsTab({ svc }: { svc: ServiceSummary }) {
+  const profile = useApp((s) => s.profile)
+  const region = useApp((s) => s.region)
+  const actions = useServiceActions()
+  const family = taskDefFamily(svc.taskDefinition)
+  const revs = useAsync<string[]>(
+    profile && region ? () => api.listTaskDefinitionRevisions(profile, region, family) : null,
+    [profile, region, family],
+  )
+  type Dep = ServiceSummary['deployments'][number]
+  const cols: Column<Dep>[] = [
+    { id: 'id', header: 'Deployment', cell: (d) => <span className="font-mono text-xs">{d.id}</span> },
+    {
+      id: 'status',
+      header: 'Status',
+      cell: (d) => (
+        <ToneBadge tone="neutral" dot={false}>
+          {deploymentStatusLabel(d.status)}
+        </ToneBadge>
+      ),
+    },
+    { id: 'td', header: 'Task definition', cell: (d) => <span className="font-mono text-xs">{taskDefShort(d.taskDefinition)}</span> },
+    {
+      id: 'rollout',
+      header: 'Rollout',
+      cell: (d) => {
+        const m = rolloutMeta(d.rolloutState)
+        return <ToneBadge tone={m.tone}>{m.label}</ToneBadge>
+      },
+    },
+    {
+      id: 'progress',
+      header: 'Progress',
+      cell: (d) => (
+        <div className="flex items-center gap-2.5">
+          <UsageBar className="w-[110px]" value={pct(d.running, d.desired)} tone={d.rolloutState === 'IN_PROGRESS' ? 'info' : 'ok'} />
+          <span className="num">
+            {d.running}/{d.desired}
+          </span>
+          {d.failed > 0 && <span className="num text-crit">{d.failed} failed</span>}
+        </div>
+      ),
+    },
+    { id: 'created', header: 'Created', cell: (d) => <span className="text-muted-foreground">{ago(d.createdAt)}</span> },
+    {
+      id: 'act',
+      header: <span className="sr-only">Actions</span>,
+      className: 'py-1.5',
+      cell: (d) =>
+        d === svc.deployments[0] ? (
+          <ActionButton size="sm" icon={Undo02Icon} onClick={() => actions.rollback(svc)}>
+            Roll back
+          </ActionButton>
+        ) : null,
+    },
+  ]
+  const inUse = new Map(svc.deployments.map((d) => [taskDefShort(d.taskDefinition), deploymentStatusLabel(d.status)]))
+  const revCols: Column<string>[] = [
+    { id: 'rev', header: 'Revision', cell: (r) => <span className="font-mono text-xs">{taskDefShort(r)}</span> },
+    {
+      id: 'use',
+      header: 'In use',
+      cell: (r) => {
+        const u = inUse.get(taskDefShort(r))
+        return u ? <ToneBadge tone={u === 'Primary' ? 'ok' : 'info'}>{u}</ToneBadge> : <span className="text-muted-foreground">—</span>
+      },
+    },
+    { id: 'arn', header: 'ARN', className: 'text-muted-foreground', cell: (r) => <span className="font-mono text-xs">{r}</span> },
+  ]
+  return (
+    <>
+      <DeployTimeline service={svc} />
+      <DataTable rows={svc.deployments} columns={cols} rowKey={(d) => d.id} empty="No deployments." />
+      <SectionTitle>Previous revisions</SectionTitle>
+      {revs.error && !revs.data ? (
+        <ErrorState error={revs.error} onRetry={revs.reload} />
+      ) : !revs.data ? (
+        <Skeleton className="h-32 rounded-2xl" />
+      ) : (
+        <DataTable rows={revs.data} columns={revCols} rowKey={(r) => r} empty="No revisions found." />
+      )}
+    </>
+  )
+}
+
