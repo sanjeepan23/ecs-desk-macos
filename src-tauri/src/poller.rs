@@ -139,3 +139,57 @@ pub fn spawn(app: AppHandle) {
     });
 }
 
+/// Fetches the parts for one tick. Returns the update and the last error, if any.
+async fn poll_once(st: &AppState, focus: &Focus, full: bool) -> (EcsUpdate, Option<String>) {
+    let (p, r) = (focus.profile.as_str(), focus.region.as_str());
+    let mut error = None;
+    let mut update = EcsUpdate {
+        profile: focus.profile.clone(),
+        region: focus.region.clone(),
+        polled_at: 0,
+        clusters: None,
+        services: None,
+        service_detail: None,
+        tasks: None,
+    };
+
+    if full {
+        match ecs::fetch_clusters(st, p, r).await {
+            Ok(clusters) => {
+                let results = futures::future::join_all(
+                    clusters.iter().map(|c| ecs::fetch_services(st, p, r, &c.arn)),
+                )
+                .await;
+                let mut services = Vec::new();
+                for res in results {
+                    match res {
+                        Ok(s) => services.extend(s),
+                        Err(e) => error = Some(e.message),
+                    }
+                }
+                update.clusters = Some(clusters);
+                update.services = Some(services);
+            }
+            Err(e) => error = Some(e.message),
+        }
+    }
+
+    if let (Some(cluster), Some(service)) = (&focus.cluster, &focus.service) {
+        let (detail, tasks) = tokio::join!(
+            ecs::fetch_service(st, p, r, cluster, service),
+            ecs::fetch_tasks(st, p, r, cluster, Some(service), "RUNNING"),
+        );
+        match detail {
+            Ok(d) => update.service_detail = Some(d),
+            Err(e) => error = Some(e.message),
+        }
+        match tasks {
+            Ok(t) => update.tasks = Some(t),
+            Err(e) => error = Some(e.message),
+        }
+    }
+
+    update.polled_at = chrono::Utc::now().timestamp_millis();
+    (update, error)
+}
+
