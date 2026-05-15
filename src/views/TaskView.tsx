@@ -169,3 +169,32 @@ function TaskDetail({ task, crumbs }: { task: Task; crumbs: { label: string; onC
   )
 }
 
+function ContainerCard({ c, onExec, onLogs }: { c: Container; onExec: () => void; onLogs?: () => void }) {
+  const running = c.lastStatus === 'RUNNING'
+  return (
+    <Panel title={<span className="truncate">{c.name}</span>} right={<ToneBadge tone={taskStatusTone(c.lastStatus ?? '')}>{titleCase(c.lastStatus)}</ToneBadge>}>
+      <KV
+        rows={[
+          ['Image', <span className="font-mono text-xs">{c.image ?? '—'}</span>],
+          ['Health', <HealthCheckBadge health={c.healthStatus} />],
+          ...(c.exitCode != null ? ([['Exit code', <span className={cn('num', c.exitCode && 'text-crit')}>{c.exitCode}</span>]] as [string, ReactNode][]) : []),
+          ...(c.reason ? ([['Reason', c.reason]] as [string, string][]) : []),
+          ['Exec agent', c.execAgentStatus ? titleCase(c.execAgentStatus) : <span className="text-muted-foreground">Not running</span>],
+        ]}
+      />
+      <div className="mt-3.5 flex flex-wrap gap-2">
+        {running && (
+          <ActionButton size="sm" icon={ComputerTerminal01Icon} onClick={onExec}>
+            Exec
+          </ActionButton>
+        )}
+        {onLogs && (
+          <Button size="sm" variant="outline" onClick={onLogs}>
+            <Icon icon={TextAlignLeftIcon} />
+            Logs
+          </Button>
+        )}
+      </div>
+    </Panel>
+  )
+}
