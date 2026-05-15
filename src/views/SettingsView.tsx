@@ -131,3 +131,110 @@ function RegionEditor({ p }: { p: Profile }) {
   )
 }
 
+function ProfilesTable() {
+  const profiles = useApp((s) => s.profiles)
+  const setReadOnly = useApp((s) => s.setReadOnly)
+  const requestAllow = useAllowActions((s) => s.request)
+  const cols: Column<Profile>[] = [
+    {
+      id: 'name',
+      header: 'Profile',
+      sort: (p) => p.name,
+      cell: (p) => (
+        <span className="inline-flex items-center gap-2">
+          <EnvDot prod={p.isProd} />
+          <b>{p.name}</b>
+        </span>
+      ),
+    },
+    { id: 'acct', header: 'Account', cell: (p) => <span className="font-mono text-xs">{formatAccount(p.accountId)}</span> },
+    { id: 'auth', header: 'Auth', cell: (p) => AUTH_LABEL[p.authKind] ?? p.authKind },
+    { id: 'regions', header: 'Regions', className: 'whitespace-normal', cell: (p) => <RegionEditor p={p} /> },
+    {
+      id: 'ro',
+      header: 'Read-only',
+      cell: (p) => (
+        <Switch
+          checked={p.readOnly}
+          aria-label={`Read-only for ${p.name}`}
+          onCheckedChange={(v) => (v ? void setReadOnly(p.name, true) : requestAllow(p.name))}
+        />
+      ),
+    },
+  ]
+  return <DataTable rows={profiles} columns={cols} rowKey={(p) => p.name} empty="No profiles in ~/.aws/config." />
+}
+
+export function SettingsView() {
+  const settings = useApp((s) => s.settings)
+  const save = useApp((s) => s.saveSettings)
+  const poll = useApp((s) => s.pollStatus)
+  if (!settings) return null
+  const set = <K extends keyof Settings>(k: K, v: Settings[K]) => void save({ [k]: v } as Partial<Settings>)
+
+  return (
+    <>
+      <Crumbs items={[{ label: 'Settings' }]} />
+      <PageHeader title="Settings" sub="Settings stay on this machine." />
+      <div className="grid max-w-[860px] gap-3.5">
+        <Panel title="AWS profiles" right={<span className="text-muted-foreground">from ~/.aws/config</span>}>
+          <ProfilesTable />
+          <p className="mt-2.5 text-[12.5px] text-muted-foreground">Profiles with "prod" in the name start in read-only mode.</p>
+        </Panel>
+
+        <Panel title="Polling">
+          <Setting title="Focused view" hint="How often the open page refreshes.">
+            <Segmented
+              label="Focused view interval"
+              value={String(settings.pollFocusedSecs)}
+              onChange={(v) => set('pollFocusedSecs', Number(v))}
+              options={[2, 3, 5].map((n) => ({ value: String(n), label: `${n} s` }))}
+            />
+          </Setting>
+          <Setting title="Background views" hint="Other clusters and regions in the tree.">
+            <Segmented
+              label="Background interval"
+              value={String(settings.pollBackgroundSecs)}
+              onChange={(v) => set('pollBackgroundSecs', Number(v))}
+              options={[30, 45, 60].map((n) => ({ value: String(n), label: `${n} s` }))}
+            />
+          </Setting>
+          <Setting title="Rate budget" hint="Calls back off when AWS returns ThrottlingException.">
+            <span className="num">{poll ? `${poll.apiCallsPerMin} calls/min · ${poll.budgetPct}% of budget` : 'No data yet'}</span>
+          </Setting>
+        </Panel>
+
+        <Panel title="Safety">
+          <Setting title="Type the service name to confirm" hint="Applies to destructive actions on production profiles.">
+            <Switch
+              checked={settings.confirmProdByTyping}
+              onCheckedChange={(v) => set('confirmProdByTyping', v)}
+              aria-label="Type the service name to confirm"
+            />
+          </Setting>
+          <Setting title="Minimum IAM policy" hint="Copy the policy for read-only use or full use.">
+            <div className="flex gap-2">
+              <CopyButton text={READ_ONLY_POLICY}>Read-only</CopyButton>
+              <CopyButton text={FULL_POLICY}>Full</CopyButton>
+            </div>
+          </Setting>
+        </Panel>
+
+        <Panel title="Appearance">
+          <Setting title="Theme" hint="Follow the system, or pick one.">
+            <Segmented
+              label="Theme"
+              value={settings.theme}
+              onChange={(v) => set('theme', v)}
+              options={[
+                { value: 'system', label: 'System' },
+                { value: 'light', label: 'Light' },
+                { value: 'dark', label: 'Dark' },
+              ]}
+            />
+          </Setting>
+        </Panel>
+      </div>
+    </>
+  )
+}
