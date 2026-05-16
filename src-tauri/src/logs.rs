@@ -100,3 +100,56 @@ fn json_level(message: &str) -> Option<&'static str> {
     }
 }
 
+/// The awslogs stream name is "<prefix>/<container>/<task-id>".
+fn stream_prefix(t: &LogTarget) -> Option<String> {
+    let prefix = t.stream_prefix.as_deref().filter(|p| !p.is_empty())?;
+    Some(match t.container.as_deref().filter(|c| !c.is_empty()) {
+        Some(c) => format!("{prefix}/{c}/"),
+        None => format!("{prefix}/"),
+    })
+}
+
+/// Unique (group, stream prefix) pairs to search. A target with no prefix covers its whole group.
+fn search_scopes(targets: &[LogTarget]) -> Vec<(String, Option<String>)> {
+    let mut groups: Vec<String> = Vec::new();
+    for t in targets {
+        if !groups.contains(&t.group) {
+            groups.push(t.group.clone());
+        }
+    }
+    let mut scopes = Vec::new();
+    for g in groups {
+        let in_group: Vec<&LogTarget> = targets.iter().filter(|t| t.group == g).collect();
+        let prefixes: Vec<Option<String>> = in_group.iter().map(|t| stream_prefix(t)).collect();
+        if prefixes.iter().any(Option::is_none) {
+            scopes.push((g, None));
+            continue;
+        }
+        let mut seen: Vec<String> = Vec::new();
+        for p in prefixes.into_iter().flatten() {
+            if !seen.contains(&p) {
+                seen.push(p.clone());
+                scopes.push((g.clone(), Some(p)));
+            }
+        }
+    }
+    scopes
+}
+
+/// Log groups and stream prefixes for one live tail. Prefixes are allowed only with one group.
+fn tail_scope(targets: &[LogTarget]) -> (Vec<String>, Vec<String>) {
+    let scopes = search_scopes(targets);
+    let mut groups: Vec<String> = Vec::new();
+    for (g, _) in &scopes {
+        if !groups.contains(g) {
+            groups.push(g.clone());
+        }
+    }
+    let prefixes = if groups.len() == 1 && scopes.iter().all(|(_, p)| p.is_some()) {
+        scopes.into_iter().filter_map(|(_, p)| p).collect()
+    } else {
+        Vec::new()
+    };
+    (groups, prefixes)
+}
+
