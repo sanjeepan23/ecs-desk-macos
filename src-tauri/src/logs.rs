@@ -400,3 +400,72 @@ pub async fn start_log_tail(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn stop_log_tail(state: State<'_, AppState>, session_id: String) -> AppResult<()> {
+    state.tails.remove(&session_id);
+    Ok(())
+}
+
+/// Times are Unix milliseconds.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn search_logs(
+    state: State<'_, AppState>,
+    profile: String,
+    region: String,
+    targets: Vec<LogTarget>,
+    filter: Option<String>,
+    start_ms: i64,
+    end_ms: i64,
+    limit: Option<i32>,
+) -> AppResult<Vec<LogLine>> {
+    if end_ms < start_ms {
+        return Err(AppError::invalid("The search end time is before the start time."));
+    }
+    let limit = limit.filter(|l| *l > 0).unwrap_or(DEFAULT_SEARCH_LIMIT).min(10_000);
+    let filter = filter.map(|f| f.trim().to_owned()).filter(|f| !f.is_empty());
+    let ctx = state.clients.get(&profile, &region).await;
+    let mut lines: Vec<LogLine> = Vec::new();
+    for (group, prefix) in search_scopes(&targets) {
+        let mut group_lines: Vec<LogLine> = Vec::new();
+        let mut next_token: Option<String> = None;
+        for _ in 0..MAX_SEARCH_PAGES {
+            state.limiter.acquire(&profile, &region).await;
+            let res = ctx
+                .logs
+                .filter_log_events()
+                .log_group_name(&group)
+                .set_log_stream_name_prefix(prefix.clone())
+                .start_time(start_ms)
+                .end_time(end_ms)
+                .set_filter_pattern(filter.clone())
+                .limit(limit.min(10_000))
+                .set_next_token(next_token.take())
+                .send()
+                .await;
+            let out = match res {
+                Ok(o) => o,
+                Err(e) => return Err(fail(&state, &profile, &region, e).await),
+            };
+            for ev in out.events() {
+                group_lines.push(line(
+                    ev.timestamp().unwrap_or_default(),
+                    ev.message().unwrap_or_default(),
+                    group.clone(),
+                    ev.log_stream_name().unwrap_or_default().to_owned(),
+                ));
+            }
+            // Events come oldest first. Keep only the newest `limit` lines so memory stays bounded.
+            keep_newest(&mut group_lines, limit as usize);
+            match out.next_token() {
+                Some(t) => next_token = Some(t.to_owned()),
+                None => break,
+            }
+        }
+        lines.extend(group_lines);
+    }
+    lines.sort_by_key(|l| l.timestamp);
+    keep_newest(&mut lines, limit as usize);
+    Ok(lines)
+}
+
