@@ -229,3 +229,100 @@ pub async fn resolve_log_targets(
     Ok(targets)
 }
 
+async fn account_id(state: &AppState, profile: &str, region: &str) -> AppResult<String> {
+    if let Some(a) = state.tails.accounts.lock().await.get(profile) {
+        return Ok(a.clone());
+    }
+    let ctx = state.clients.get(profile, region).await;
+    state.limiter.acquire(profile, region).await;
+    let out = match ctx.sts.get_caller_identity().send().await {
+        Ok(o) => o,
+        Err(e) => return Err(fail(state, profile, region, e).await),
+    };
+    let account = out
+        .account()
+        .ok_or_else(|| AppError::internal("GetCallerIdentity returned no account."))?
+        .to_owned();
+    state.tails.accounts.lock().await.insert(profile.to_owned(), account.clone());
+    Ok(account)
+}
+
+struct TailSpec {
+    session_id: String,
+    generation: u64,
+    profile: String,
+    region: String,
+    arns: Vec<String>,
+    prefixes: Vec<String>,
+    filter: Option<String>,
+}
+
+async fn open_tail(state: &AppState, spec: &TailSpec) -> AppResult<StartLiveTailOutput> {
+    let ctx = state.clients.get(&spec.profile, &spec.region).await;
+    state.limiter.acquire(&spec.profile, &spec.region).await;
+    let mut req = ctx.logs.start_live_tail().set_log_group_identifiers(Some(spec.arns.clone()));
+    if !spec.prefixes.is_empty() {
+        req = req.set_log_stream_name_prefixes(Some(spec.prefixes.clone()));
+    }
+    if let Some(f) = &spec.filter {
+        req = req.log_event_filter_pattern(f);
+    }
+    match req.send().await {
+        Ok(o) => Ok(o),
+        Err(e) => Err(fail(state, &spec.profile, &spec.region, e).await),
+    }
+}
+
+/// Reads live tail sessions and opens a new one when a session ends.
+async fn read_tails(app: AppHandle, spec: TailSpec, first: StartLiveTailOutput, tx: mpsc::UnboundedSender<LogLine>) {
+    let state = app.state::<AppState>();
+    let mut next = Some(first);
+    let mut backoff = Duration::from_secs(1);
+    loop {
+        let out = match next.take() {
+            Some(o) => o,
+            None => {
+                if !state.tails.is_current(&spec.session_id, spec.generation) {
+                    return;
+                }
+                match open_tail(&state, &spec).await {
+                    Ok(o) => o,
+                    Err(e) => {
+                        log::warn!("live tail {} restart failed: {}", spec.session_id, e.message);
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(Duration::from_secs(60));
+                        continue;
+                    }
+                }
+            }
+        };
+        let mut stream = out.response_stream;
+        loop {
+            match stream.recv().await {
+                Ok(Some(StartLiveTailResponseStream::SessionStart(_))) => backoff = Duration::from_secs(1),
+                Ok(Some(StartLiveTailResponseStream::SessionUpdate(u))) => {
+                    for ev in u.session_results() {
+                        let l = line(
+                            ev.timestamp().unwrap_or_default(),
+                            ev.message().unwrap_or_default(),
+                            group_name(ev.log_group_identifier().unwrap_or_default()),
+                            ev.log_stream_name().unwrap_or_default().to_owned(),
+                        );
+                        if tx.send(l).is_err() {
+                            return;
+                        }
+                    }
+                }
+                Ok(Some(_)) => {}
+                Ok(None) => break,
+                Err(e) => {
+                    log::warn!("live tail {} stream error: {}", spec.session_id, aws_err(e).message);
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(Duration::from_secs(60));
+                    break;
+                }
+            }
+        }
+    }
+}
+
