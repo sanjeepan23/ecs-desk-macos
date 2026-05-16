@@ -193,3 +193,35 @@ async fn poll_once(st: &AppState, focus: &Focus, full: bool) -> (EcsUpdate, Opti
     (update, error)
 }
 
+#[tauri::command]
+pub async fn set_focus(state: State<'_, AppState>, focus: Focus) -> AppResult<()> {
+    state.poller.focus.send_replace(Some(focus));
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn poll_status(state: State<'_, AppState>) -> AppResult<PollStatus> {
+    Ok(state.poller.status.lock().unwrap().clone())
+}
+
+#[tauri::command]
+pub async fn refresh_now(state: State<'_, AppState>) -> AppResult<()> {
+    state.poller.force_full.store(true, Ordering::SeqCst);
+    state.poller.wake.notify_one();
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn changed_skips_same_payload() {
+        let mut last = None;
+        assert_eq!(changed(&mut last, Some(vec![1, 2])), Some(vec![1, 2]));
+        assert_eq!(changed(&mut last, Some(vec![1, 2])), None);
+        assert_eq!(changed(&mut last, Some(vec![3])), Some(vec![3]));
+        assert_eq!(changed::<Vec<i32>>(&mut last, None), None);
+        assert_eq!(changed(&mut last, Some(vec![3])), None);
+    }
+}
