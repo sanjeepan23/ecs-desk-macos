@@ -51,3 +51,52 @@ impl TailRegistry {
     }
 }
 
+/// Guesses a log level. JSON level fields win over words in the text.
+pub fn guess_level(message: &str) -> &'static str {
+    if let Some(level) = json_level(message) {
+        return level;
+    }
+    let m = message.to_ascii_lowercase();
+    if ["error", "exception", "fatal", "panic"].iter().any(|w| m.contains(w)) {
+        "ERROR"
+    } else if m.contains("warn") {
+        "WARN"
+    } else if m.contains("debug") || m.contains("trace") {
+        "DEBUG"
+    } else {
+        "INFO"
+    }
+}
+
+fn json_level(message: &str) -> Option<&'static str> {
+    let trimmed = message.trim();
+    if !trimmed.starts_with('{') {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+    let obj = v.as_object()?;
+    let raw = ["level", "severity", "lvl", "levelname", "log.level", "loglevel"]
+        .iter()
+        .find_map(|k| obj.get(*k))?;
+    let text = match raw {
+        serde_json::Value::String(s) => s.to_ascii_lowercase(),
+        // Pino and Bunyan use numbers: 10 trace, 20 debug, 30 info, 40 warn, 50 error, 60 fatal.
+        serde_json::Value::Number(n) => {
+            return n.as_i64().map(|n| match n {
+                i64::MIN..=29 => "DEBUG",
+                30..=39 => "INFO",
+                40..=49 => "WARN",
+                _ => "ERROR",
+            })
+        }
+        _ => return None,
+    };
+    match text.as_str() {
+        "error" | "err" | "fatal" | "critical" | "crit" | "panic" | "alert" | "emerg" | "emergency" => Some("ERROR"),
+        "warn" | "warning" => Some("WARN"),
+        "debug" | "trace" | "verbose" => Some("DEBUG"),
+        "info" | "information" | "notice" => Some("INFO"),
+        _ => None,
+    }
+}
+
