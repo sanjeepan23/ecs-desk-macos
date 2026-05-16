@@ -469,3 +469,96 @@ pub async fn search_logs(
     Ok(lines)
 }
 
+/// Removes the oldest items until at most `limit` remain. The input must be sorted oldest first.
+fn keep_newest<T>(items: &mut Vec<T>, limit: usize) {
+    if items.len() > limit {
+        items.drain(..items.len() - limit);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn keep_newest_drops_oldest() {
+        let mut v = vec![1, 2, 3, 4, 5];
+        super::keep_newest(&mut v, 2);
+        assert_eq!(v, vec![4, 5]);
+        super::keep_newest(&mut v, 10);
+        assert_eq!(v, vec![4, 5]);
+    }
+
+    use super::*;
+
+    fn target(group: &str, prefix: Option<&str>, container: Option<&str>) -> LogTarget {
+        LogTarget {
+            group: group.into(),
+            stream_prefix: prefix.map(Into::into),
+            container: container.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn level_from_text() {
+        assert_eq!(guess_level("Error: connection refused"), "ERROR");
+        assert_eq!(guess_level("java.lang.NullPointerException at Foo"), "ERROR");
+        assert_eq!(guess_level("thread 'main' panicked"), "ERROR");
+        assert_eq!(guess_level("FATAL boom"), "ERROR");
+        assert_eq!(guess_level("WARNING: disk almost full"), "WARN");
+        assert_eq!(guess_level("debug: cache hit"), "DEBUG");
+        assert_eq!(guess_level("TRACE span"), "DEBUG");
+        assert_eq!(guess_level("GET /health 200"), "INFO");
+    }
+
+    #[test]
+    fn json_level_wins_over_text() {
+        assert_eq!(guess_level(r#"{"level":"error","msg":"x"}"#), "ERROR");
+        assert_eq!(guess_level(r#"{"level":"info","msg":"0 errors found"}"#), "INFO");
+        assert_eq!(guess_level(r#"{"severity":"WARNING","msg":"x"}"#), "WARN");
+        assert_eq!(guess_level(r#"{"level":50,"msg":"x"}"#), "ERROR");
+        assert_eq!(guess_level(r#"{"level":20,"msg":"x"}"#), "DEBUG");
+        assert_eq!(guess_level(r#"{"level":"odd","msg":"panic"}"#), "ERROR");
+        assert_eq!(guess_level(r#"{"msg":"warn me"}"#), "WARN");
+    }
+
+    #[test]
+    fn group_arn_uses_partition() {
+        assert_eq!(
+            log_group_arn("us-east-1", "123456789012", "/ecs/web"),
+            "arn:aws:logs:us-east-1:123456789012:log-group:/ecs/web"
+        );
+        assert_eq!(log_group_arn("cn-north-1", "1", "g"), "arn:aws-cn:logs:cn-north-1:1:log-group:g");
+        assert_eq!(log_group_arn("us-east-1", "1", "arn:aws:logs:us-east-1:1:log-group:g:*"), "arn:aws:logs:us-east-1:1:log-group:g");
+        assert_eq!(group_name("arn:aws:logs:us-east-1:1:log-group:/ecs/web"), "/ecs/web");
+        assert_eq!(group_name("/ecs/web"), "/ecs/web");
+    }
+
+    #[test]
+    fn scopes_group_targets() {
+        let t = vec![
+            target("/ecs/web", Some("ecs"), Some("app")),
+            target("/ecs/web", Some("ecs"), Some("sidecar")),
+            target("/ecs/other", None, Some("x")),
+        ];
+        assert_eq!(
+            search_scopes(&t),
+            vec![
+                ("/ecs/web".into(), Some("ecs/app/".into())),
+                ("/ecs/web".into(), Some("ecs/sidecar/".into())),
+                ("/ecs/other".into(), None),
+            ]
+        );
+        let (groups, prefixes) = tail_scope(&t);
+        assert_eq!(groups, vec!["/ecs/web".to_string(), "/ecs/other".to_string()]);
+        assert!(prefixes.is_empty());
+
+        let (groups, prefixes) = tail_scope(&t[..2]);
+        assert_eq!(groups, vec!["/ecs/web".to_string()]);
+        assert_eq!(prefixes, vec!["ecs/app/".to_string(), "ecs/sidecar/".to_string()]);
+    }
+
+    #[test]
+    fn target_without_prefix_covers_group() {
+        let t = vec![target("/g", Some("ecs"), Some("a")), target("/g", None, None)];
+        assert_eq!(search_scopes(&t), vec![("/g".into(), None)]);
+    }
+}
