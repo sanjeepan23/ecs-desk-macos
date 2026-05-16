@@ -326,3 +326,77 @@ async fn read_tails(app: AppHandle, spec: TailSpec, first: StartLiveTailOutput, 
     }
 }
 
+/// Sends lines as `logs://lines` batches every 250 ms or every 200 lines.
+async fn flush_lines(app: AppHandle, session_id: String, mut rx: mpsc::UnboundedReceiver<LogLine>) {
+    let mut buf: Vec<LogLine> = Vec::new();
+    let mut tick = tokio::time::interval(FLUSH_EVERY);
+    let emit = |buf: &mut Vec<LogLine>| {
+        if buf.is_empty() {
+            return;
+        }
+        let batch = LogBatch { session_id: session_id.clone(), lines: std::mem::take(buf) };
+        if let Err(e) = app.emit(events::LOG_LINES, batch) {
+            log::warn!("emit {} failed: {e}", events::LOG_LINES);
+        }
+    };
+    loop {
+        tokio::select! {
+            msg = rx.recv() => match msg {
+                Some(l) => {
+                    buf.push(l);
+                    if buf.len() >= FLUSH_LINES {
+                        emit(&mut buf);
+                    }
+                }
+                None => {
+                    emit(&mut buf);
+                    return;
+                }
+            },
+            _ = tick.tick() => emit(&mut buf),
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn start_log_tail(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    profile: String,
+    region: String,
+    targets: Vec<LogTarget>,
+    filter: Option<String>,
+) -> AppResult<()> {
+    let (mut groups, prefixes) = tail_scope(&targets);
+    if groups.is_empty() {
+        return Err(AppError::invalid("Choose at least one log group to tail."));
+    }
+    if groups.len() > MAX_TAIL_GROUPS {
+        log::warn!("live tail {session_id}: using the first {MAX_TAIL_GROUPS} of {} log groups", groups.len());
+        groups.truncate(MAX_TAIL_GROUPS);
+    }
+    let account = account_id(&state, &profile, &region).await?;
+    let arns = groups.iter().map(|g| log_group_arn(&region, &account, g)).collect();
+    let spec = TailSpec {
+        session_id: session_id.clone(),
+        generation: state.tails.next_gen.fetch_add(1, Ordering::Relaxed),
+        profile,
+        region,
+        arns,
+        prefixes,
+        filter: filter.map(|f| f.trim().to_owned()).filter(|f| !f.is_empty()),
+    };
+    // Open the first session here so that errors go back to the UI.
+    let first = open_tail(&state, &spec).await?;
+    let generation = spec.generation;
+    let (tx, rx) = mpsc::unbounded_channel();
+    let reader = read_tails(app.clone(), spec, first, tx);
+    let flusher = flush_lines(app.clone(), session_id.clone(), rx);
+    let handle = tauri::async_runtime::spawn(async move {
+        tokio::join!(reader, flusher);
+    });
+    state.tails.insert(session_id, generation, handle);
+    Ok(())
+}
+
