@@ -153,3 +153,79 @@ fn tail_scope(targets: &[LogTarget]) -> (Vec<String>, Vec<String>) {
     (groups, prefixes)
 }
 
+fn partition(region: &str) -> &'static str {
+    if region.starts_with("cn-") {
+        "aws-cn"
+    } else if region.starts_with("us-gov-") {
+        "aws-us-gov"
+    } else {
+        "aws"
+    }
+}
+
+/// StartLiveTail needs the group ARN without the trailing ":*".
+fn log_group_arn(region: &str, account: &str, group: &str) -> String {
+    if group.starts_with("arn:") {
+        return group.trim_end_matches(":*").to_owned();
+    }
+    format!("arn:{}:logs:{region}:{account}:log-group:{group}", partition(region))
+}
+
+/// Live tail events name the group by ARN. The UI wants the plain name.
+fn group_name(identifier: &str) -> String {
+    match identifier.split_once(":log-group:") {
+        Some((_, name)) => name.trim_end_matches(":*").to_owned(),
+        None => identifier.to_owned(),
+    }
+}
+
+fn line(timestamp: i64, message: &str, group: String, stream: String) -> LogLine {
+    LogLine {
+        timestamp,
+        level: guess_level(message).to_owned(),
+        message: message.trim_end_matches(['\r', '\n']).to_owned(),
+        group,
+        stream,
+    }
+}
+
+#[tauri::command]
+pub async fn resolve_log_targets(
+    state: State<'_, AppState>,
+    profile: String,
+    region: String,
+    task_definition: String,
+) -> AppResult<Vec<LogTarget>> {
+    let ctx = state.clients.get(&profile, &region).await;
+    state.limiter.acquire(&profile, &region).await;
+    let out = match ctx.ecs.describe_task_definition().task_definition(&task_definition).send().await {
+        Ok(o) => o,
+        Err(e) => return Err(fail(&state, &profile, &region, e).await),
+    };
+    let td = out
+        .task_definition()
+        .ok_or_else(|| AppError::internal("DescribeTaskDefinition returned no task definition."))?;
+    let targets: Vec<LogTarget> = td
+        .container_definitions()
+        .iter()
+        .filter_map(|c| {
+            let lc = c.log_configuration()?;
+            if lc.log_driver() != &LogDriver::Awslogs {
+                return None;
+            }
+            let opts = lc.options()?;
+            Some(LogTarget {
+                group: opts.get("awslogs-group")?.clone(),
+                stream_prefix: opts.get("awslogs-stream-prefix").cloned(),
+                container: c.name().map(str::to_owned),
+            })
+        })
+        .collect();
+    if targets.is_empty() {
+        return Err(AppError::invalid(format!(
+            "No container in {task_definition} uses the awslogs log driver. ECS Desk can only read logs from awslogs."
+        )));
+    }
+    Ok(targets)
+}
+
