@@ -46,3 +46,31 @@ export function splitHighlight(text: string, query: string): Segment[] {
   return out.length ? out : [{ text, match: false }]
 }
 
+export function includesCI(text: string, query: string): boolean {
+  const q = query.trim()
+  if (!q) return true
+  return new RegExp(escapeRegExp(q), 'iu').test(text)
+}
+
+/** Short task ID: the last ARN segment, first 8 characters. */
+export function shortTaskId(arnOrId: string): string {
+  const id = arnOrId.split('/').pop() ?? arnOrId
+  return id.slice(0, 8)
+}
+
+/** "family:rev" from a task definition ARN or short form. */
+export function shortTaskDef(td: string): string {
+  return td.split('/').pop() ?? td
+}
+
+export function parseTaskDef(td: string): { family: string; revision: number | null } {
+  const short = shortTaskDef(td)
+  const i = short.lastIndexOf(':')
+  if (i < 0) return { family: short, revision: null }
+  const rev = Number(short.slice(i + 1))
+  return { family: short.slice(0, i), revision: Number.isFinite(rev) ? rev : null }
+}
+
+export function hms(t: number): string {
+  return new Date(t).toLocaleTimeString([], { hour12: false })
+}
