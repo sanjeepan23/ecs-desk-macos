@@ -48,3 +48,27 @@ describe('normalizeLevel', () => {
   })
 })
 
+describe('filterRows', () => {
+  const b = new LogBuffer()
+  b.append([line(1, 'INFO', 'GET /orders'), line(2, 'WARN', 'slow orders'), line(3, 'ERROR', 'OutOfMemoryError'), line(4, 'DEBUG', 'jwt')])
+  const rows = b.snapshot()
+
+  it('returns all rows for no filter', () => {
+    expect(filterRows(rows, 'all', '')).toBe(rows)
+  })
+  it('filters by exact level', () => {
+    expect(filterRows(rows, 'WARN', '').map((r) => r.timestamp)).toEqual([2])
+  })
+  it('combines level and text', () => {
+    expect(filterRows(rows, 'all', 'ORDERS').map((r) => r.timestamp)).toEqual([1, 2])
+    expect(filterRows(rows, 'INFO', 'orders').map((r) => r.timestamp)).toEqual([1])
+  })
+})
+
+describe('sourceLabel', () => {
+  it('shows container and short task ID', () => {
+    expect(sourceLabel('ecs/api/0123456789abcdef')).toBe('api/01234567')
+    expect(sourceLabel('web/abcdef0123')).toBe('web/abcdef01')
+    expect(sourceLabel('single')).toBe('single')
+  })
+})
