@@ -43,3 +43,56 @@ const LEVEL_CLASS: Record<Level, string> = {
 
 type TailState = 'idle' | 'connecting' | 'live' | 'error'
 
+function targetKey(t: LogTarget) {
+  return `${t.group}|${t.streamPrefix ?? ''}|${t.container ?? ''}`
+}
+
+/** Resolves log targets for each distinct task definition. */
+function useLogTargets(profile: string | null, region: string | null, services: ServiceSummary[]) {
+  const tdKey = useMemo(() => [...new Set(services.map((s) => s.taskDefinition))].sort().join('\n'), [services])
+  const [state, setState] = useState<{ targets: LogTarget[] | null; error: string | null; warnings: string[] }>({
+    targets: null,
+    error: null,
+    warnings: [],
+  })
+
+  useEffect(() => {
+    const tds = tdKey ? tdKey.split('\n') : []
+    if (!profile || !region || !tds.length) {
+      setState({ targets: [], error: null, warnings: [] })
+      return
+    }
+    let live = true
+    setState({ targets: null, error: null, warnings: [] })
+    Promise.allSettled(tds.map((td) => api.resolveLogTargets(profile, region, td))).then((results) => {
+      if (!live) return
+      const seen = new Map<string, LogTarget>()
+      const problems: string[] = []
+      results.forEach((r, i) => {
+        const td = shortTaskDef(tds[i])
+        if (r.status === 'rejected') problems.push(`${td}: ${asAppError(r.reason).message}`)
+        else if (!r.value.length) problems.push(`${td} has no awslogs log configuration.`)
+        else r.value.forEach((t) => seen.set(targetKey(t), t))
+      })
+      const targets = [...seen.values()]
+      setState(
+        targets.length
+          ? { targets, error: null, warnings: problems }
+          : {
+              targets: [],
+              error:
+                problems.length === 1
+                  ? `${problems[0]} Add the awslogs log driver to the container definitions to see logs here.`
+                  : problems.join(' ') || 'No log targets found.',
+              warnings: [],
+            },
+      )
+    })
+    return () => {
+      live = false
+    }
+  }, [profile, region, tdKey])
+
+  return state
+}
+
