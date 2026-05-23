@@ -61,3 +61,91 @@ function useMetrics(service: ServiceSummary, rangeMinutes: number): MetricsState
   return state
 }
 
+function fmtPeriod(secs: number): string {
+  if (secs < 60) return `${secs}-second`
+  if (secs < 3600) return `${Math.round(secs / 60)}-minute`
+  return `${Math.round(secs / 3600)}-hour`
+}
+
+function TooltipBody({ active, payload, rangeMinutes }: { active?: boolean; payload?: { payload: MetricPoint }[]; rangeMinutes: number }) {
+  if (!active || !payload?.length) return null
+  const p = payload[0].payload
+  const d = new Date(p.t)
+  const when =
+    rangeMinutes > 1440
+      ? d.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+      : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+  return (
+    <div className="rounded-lg bg-foreground px-2 py-1 text-xs text-background shadow-md">
+      <span className="font-semibold tabular-nums">{p.v.toFixed(1)}%</span>
+      <span className="opacity-70"> · {when}</span>
+    </div>
+  )
+}
+
+interface ChartProps {
+  label: string
+  points: MetricPoint[]
+  color: string
+  rangeMinutes: number
+  compact?: boolean
+}
+
+function MetricChart({ label, points, color, rangeMinutes, compact }: ChartProps) {
+  const gid = useId().replace(/:/g, '')
+  const last = points[points.length - 1]
+  return (
+    <div className={compact ? 'h-16' : 'h-48'} role="img" aria-label={`${label} chart, latest ${fmtPct(last?.v ?? null)}`}>
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={points} margin={compact ? { top: 4, right: 4, bottom: 0, left: 4 } : { top: 8, right: 12, bottom: 0, left: -8 }}>
+          <defs>
+            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity={0.22} />
+              <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+          {!compact && <CartesianGrid vertical={false} stroke="var(--border)" />}
+          <XAxis
+            dataKey="t"
+            type="number"
+            scale="time"
+            domain={['dataMin', 'dataMax']}
+            hide={compact}
+            tickFormatter={(t: number) => fmtTick(t, rangeMinutes)}
+            tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+            tickLine={false}
+            axisLine={false}
+            minTickGap={40}
+          />
+          <YAxis
+            domain={[0, 100]}
+            ticks={[0, 25, 50, 75, 100]}
+            hide={compact}
+            tickFormatter={(v: number) => `${v}%`}
+            tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+            tickLine={false}
+            axisLine={false}
+            width={44}
+          />
+          <Tooltip
+            cursor={{ stroke: 'var(--muted-foreground)', strokeDasharray: '3 3' }}
+            content={(p) => <TooltipBody active={p.active} payload={p.payload as unknown as { payload: MetricPoint }[]} rangeMinutes={rangeMinutes} />}
+            isAnimationActive={false}
+          />
+          <Area
+            type="monotone"
+            dataKey="v"
+            name={label}
+            stroke={color}
+            strokeWidth={2}
+            fill={`url(#${gid})`}
+            dot={false}
+            activeDot={{ r: 4, stroke: 'var(--card)', strokeWidth: 2 }}
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
