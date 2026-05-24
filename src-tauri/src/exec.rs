@@ -103,3 +103,51 @@ fn problems(f: &TaskFacts, container: &str, plugin: Option<&Path>) -> Vec<String
     out
 }
 
+async fn task_facts(state: &AppState, profile: &str, region: &str, cluster: &str, task_arn: &str, container: &str) -> AppResult<TaskFacts> {
+    let ctx = state.clients.get(profile, region).await;
+    state.limiter.acquire(profile, region).await;
+    let out = match ctx.ecs.describe_tasks().cluster(cluster).tasks(task_arn).send().await {
+        Ok(o) => o,
+        Err(e) => return Err(fail(state, profile, region, e).await),
+    };
+    let Some(task) = out.tasks().first() else {
+        return Ok(TaskFacts::default());
+    };
+    let c = task.containers().iter().find(|c| c.name() == Some(container));
+    let agent = c.and_then(|c| {
+        c.managed_agents().iter().find(|a| a.name() == Some(&ManagedAgentName::ExecuteCommandAgent))
+    });
+    Ok(TaskFacts {
+        found: true,
+        exec_enabled: task.enable_execute_command(),
+        last_status: task.last_status().map(str::to_owned),
+        container_found: c.is_some(),
+        agent_status: agent.and_then(|a| a.last_status()).map(str::to_owned),
+        runtime_id: c.and_then(|c| c.runtime_id()).map(str::to_owned),
+    })
+}
+
+#[tauri::command]
+pub async fn exec_check(
+    state: State<'_, AppState>,
+    profile: String,
+    region: String,
+    cluster: String,
+    task_arn: String,
+    container: String,
+) -> AppResult<ExecCheck> {
+    let facts = task_facts(&state, &profile, &region, &cluster, &task_arn, &container).await?;
+    let plugin = find_plugin();
+    let problems = problems(&facts, &container, plugin.as_deref());
+    Ok(ExecCheck {
+        ok: problems.is_empty(),
+        problems,
+        plugin_path: plugin.map(|p| p.to_string_lossy().into_owned()),
+    })
+}
+
+/// SSM target for ECS Exec: "ecs:<clusterName>_<taskId>_<containerRuntimeId>".
+fn ssm_target(cluster: &str, task_arn: &str, runtime_id: &str) -> String {
+    format!("ecs:{}_{}_{}", short_name(cluster), short_name(task_arn), runtime_id)
+}
+
