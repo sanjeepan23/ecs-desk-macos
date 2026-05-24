@@ -149,3 +149,108 @@ function MetricChart({ label, points, color, rangeMinutes, compact }: ChartProps
   )
 }
 
+function Legend({ stats }: { stats: Stats }) {
+  return (
+    <div className="flex gap-4 text-xs text-muted-foreground">
+      <span>
+        Now <b className="font-semibold text-foreground tabular-nums">{fmtPct(stats.now)}</b>
+      </span>
+      <span>
+        Avg <b className="font-semibold text-foreground tabular-nums">{fmtPct(stats.avg)}</b>
+      </span>
+      <span>
+        Max <b className="font-semibold text-foreground tabular-nums">{fmtPct(stats.max)}</b>
+      </span>
+    </div>
+  )
+}
+
+function NearLimitBadge() {
+  return (
+    <Badge variant="destructive" className="gap-1">
+      <HugeiconsIcon icon={Alert02Icon} />
+      Near limit
+    </Badge>
+  )
+}
+
+function StateBox({ icon, title, children, spin }: { icon: typeof Alert02Icon; title: string; children?: ReactNode; spin?: boolean }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-dashed px-6 py-10 text-center text-sm">
+      <HugeiconsIcon icon={icon} className={cn('mb-1 size-6 text-muted-foreground', spin && 'animate-spin')} />
+      <p className="font-medium">{title}</p>
+      {children && <p className="max-w-md text-muted-foreground">{children}</p>}
+    </div>
+  )
+}
+
+const EMPTY_TEXT =
+  'CloudWatch has no CPU or memory data for this service in this range. ECS sends these metrics once a minute while tasks run. For per-task data, turn on Container Insights for the cluster.'
+
+/** Full metrics tab with a range picker. */
+export function MetricsPanel({ service }: { service: ServiceSummary }) {
+  const [range, setRange] = useState<RangeKey>('1h')
+  const minutes = RANGES.find((r) => r.key === range)!.minutes
+  const { data, error, loading, updatedAt } = useMetrics(service, minutes)
+  const cpuStats = useMemo(() => seriesStats(data?.cpu ?? []), [data])
+  const memStats = useMemo(() => seriesStats(data?.memory ?? []), [data])
+  const memHot = isNearLimit(memStats)
+  const empty = data && !data.cpu.length && !data.memory.length
+
+  return (
+    <div className={cn('flex flex-col gap-3', COLOR_VARS)}>
+      <div className="flex flex-wrap items-center gap-3">
+        <ToggleGroup type="single" value={range} onValueChange={(v) => v && setRange(v as RangeKey)} variant="outline" size="sm" spacing={0} aria-label="Time range">
+          {RANGES.map((r) => (
+            <ToggleGroupItem key={r.key} value={r.key}>
+              {r.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <span className="text-xs text-muted-foreground">
+          CloudWatch{data ? ` · ${fmtPeriod(data.periodSecs)} period` : ''} · service average
+        </span>
+        <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+          {loading && data && <HugeiconsIcon icon={Loading03Icon} className="size-3.5 animate-spin" />}
+          {updatedAt && `Updated ${new Date(updatedAt).toLocaleTimeString([], { hour12: false })}`}
+        </span>
+      </div>
+
+      {error && !data ? (
+        <StateBox icon={Alert02Icon} title="Could not load metrics">
+          {error}
+        </StateBox>
+      ) : !data ? (
+        <StateBox icon={Loading03Icon} title="Loading metrics" spin />
+      ) : empty ? (
+        <StateBox icon={ChartLineData01Icon} title="No metrics yet">
+          {EMPTY_TEXT}
+        </StateBox>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>CPU utilization</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              <MetricChart label="CPU" points={data.cpu} color="var(--metric-cpu)" rangeMinutes={minutes} />
+              <Legend stats={cpuStats} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <CardTitle>Memory utilization</CardTitle>
+              {memHot && <NearLimitBadge />}
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              <MetricChart label="Memory" points={data.memory} color={memHot ? 'var(--destructive)' : 'var(--metric-mem)'} rangeMinutes={minutes} />
+              <Legend stats={memStats} />
+            </CardContent>
+          </Card>
+        </div>
+      )}
+      {error && data && <p className="text-xs text-destructive">The last refresh failed: {error}</p>}
+    </div>
+  )
+}
+
