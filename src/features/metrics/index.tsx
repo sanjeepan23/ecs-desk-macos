@@ -254,3 +254,50 @@ export function MetricsPanel({ service }: { service: ServiceSummary }) {
   )
 }
 
+function SummaryCard({ label, points, stats, color, hot, state }: { label: string; points: MetricPoint[]; stats: Stats; color: string; hot?: boolean; state: 'ok' | 'loading' | 'error' | 'empty' }) {
+  return (
+    <Card size="sm" className="gap-2">
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <CardTitle className="text-sm">{label}</CardTitle>
+        <span className="text-xs text-muted-foreground">last 1 h</span>
+      </CardHeader>
+      <CardContent className="grid gap-1">
+        <div className="flex items-baseline gap-2">
+          <span className={cn('text-2xl font-semibold tracking-tight tabular-nums', hot && 'text-destructive')}>{fmtPct(stats.now)}</span>
+          {hot && <NearLimitBadge />}
+          {state === 'ok' && <span className="ml-auto text-xs text-muted-foreground tabular-nums">max {fmtPct(stats.max)}</span>}
+        </div>
+        {state === 'ok' ? (
+          <MetricChart label={label} points={points} color={color} rangeMinutes={60} compact />
+        ) : (
+          <div className="flex h-16 items-center text-xs text-muted-foreground">
+            {state === 'loading' ? 'Loading' : state === 'error' ? 'Could not load metrics.' : 'No data in the last hour.'}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Small CPU and memory cards for the service overview tab. */
+export function MetricsSummary({ service }: { service: ServiceSummary }) {
+  const { data, error } = useMetrics(service, 60)
+  const cpuStats = useMemo(() => seriesStats(data?.cpu ?? []), [data])
+  const memStats = useMemo(() => seriesStats(data?.memory ?? []), [data])
+  const memHot = isNearLimit(memStats)
+  const stateOf = (pts: MetricPoint[] | undefined) => (data ? (pts?.length ? 'ok' : 'empty') : error ? 'error' : 'loading') as 'ok' | 'loading' | 'error' | 'empty'
+
+  return (
+    <div className={cn('grid gap-3 sm:grid-cols-2', COLOR_VARS)}>
+      <SummaryCard label="CPU" points={data?.cpu ?? []} stats={cpuStats} color="var(--metric-cpu)" state={stateOf(data?.cpu)} />
+      <SummaryCard
+        label="Memory"
+        points={data?.memory ?? []}
+        stats={memStats}
+        color={memHot ? 'var(--destructive)' : 'var(--metric-mem)'}
+        hot={memHot}
+        state={stateOf(data?.memory)}
+      />
+    </div>
+  )
+}
