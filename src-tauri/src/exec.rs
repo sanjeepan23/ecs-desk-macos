@@ -57,3 +57,49 @@ impl ExecRegistry {
     }
 }
 
+fn find_plugin() -> Option<PathBuf> {
+    if let Ok(p) = which::which(PLUGIN) {
+        return Some(p);
+    }
+    PLUGIN_DIRS.iter().map(|d| Path::new(d).join(PLUGIN)).find(|p| p.is_file())
+}
+
+/// Facts about one task and container that decide if exec can work.
+#[derive(Debug, Default)]
+struct TaskFacts {
+    found: bool,
+    exec_enabled: bool,
+    last_status: Option<String>,
+    container_found: bool,
+    agent_status: Option<String>,
+    runtime_id: Option<String>,
+}
+
+fn problems(f: &TaskFacts, container: &str, plugin: Option<&Path>) -> Vec<String> {
+    let mut out = Vec::new();
+    if !f.found {
+        out.push("The task was not found. It may have stopped.".to_owned());
+    } else {
+        if !f.exec_enabled {
+            out.push("Turn on enableExecuteCommand for the service, then start new tasks.".to_owned());
+        }
+        match f.last_status.as_deref() {
+            Some("RUNNING") => {}
+            s => out.push(format!("The task is not running (status {}).", s.unwrap_or("unknown"))),
+        }
+        if !f.container_found {
+            out.push(format!("The task has no container named {container}."));
+        } else if f.exec_enabled {
+            match f.agent_status.as_deref() {
+                Some("RUNNING") => {}
+                None => out.push("The ECS Exec agent is not present in the container.".to_owned()),
+                Some(s) => out.push(format!("The ECS Exec agent in the container is not running (status {s}).")),
+            }
+        }
+    }
+    if plugin.is_none() {
+        out.push(format!("Install the AWS Session Manager plugin ({PLUGIN}); it was not found on this machine."));
+    }
+    out
+}
+
