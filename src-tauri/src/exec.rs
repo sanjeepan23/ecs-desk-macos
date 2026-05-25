@@ -151,3 +151,48 @@ fn ssm_target(cluster: &str, task_arn: &str, runtime_id: &str) -> String {
     format!("ecs:{}_{}_{}", short_name(cluster), short_name(task_arn), runtime_id)
 }
 
+/// Plugin arguments in the same order as the AWS CLI uses.
+fn plugin_args(session_id: &str, stream_url: &str, token: &str, region: &str, profile: &str, target: &str) -> Vec<String> {
+    let session = serde_json::json!({
+        "SessionId": session_id,
+        "StreamUrl": stream_url,
+        "TokenValue": token,
+    });
+    let params = serde_json::json!({ "Target": target });
+    vec![
+        session.to_string(),
+        region.to_owned(),
+        "StartSession".to_owned(),
+        profile.to_owned(),
+        params.to_string(),
+        format!("https://ssm.{region}.amazonaws.com"),
+    ]
+}
+
+/// Takes the complete UTF-8 text from `buf`. Incomplete trailing bytes stay in `buf` for the next read.
+fn take_utf8(buf: &mut Vec<u8>) -> String {
+    let keep = incomplete_tail(buf);
+    let tail = buf.split_off(buf.len() - keep);
+    let text = String::from_utf8_lossy(buf).into_owned();
+    *buf = tail;
+    text
+}
+
+/// Length of a multi-byte character that is cut off at the end of `b`, or 0.
+fn incomplete_tail(b: &[u8]) -> usize {
+    for i in 1..=b.len().min(3) {
+        let c = b[b.len() - i];
+        if c & 0xC0 == 0x80 {
+            continue;
+        }
+        let need = match c {
+            0xF0..=0xF7 => 4,
+            0xE0..=0xEF => 3,
+            0xC0..=0xDF => 2,
+            _ => 1,
+        };
+        return if need > i { i } else { 0 };
+    }
+    0
+}
+
