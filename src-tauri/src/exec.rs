@@ -294,3 +294,109 @@ pub async fn exec_start(app: AppHandle, state: State<'_, AppState>, req: ExecSta
     Ok(())
 }
 
+#[tauri::command]
+pub async fn exec_write(state: State<'_, AppState>, session_id: String, data: String) -> AppResult<()> {
+    state.exec.with(&session_id, |s| {
+        s.writer
+            .write_all(data.as_bytes())
+            .and_then(|_| s.writer.flush())
+            .map_err(|e| AppError::internal(format!("Cannot write to the terminal: {e}")))
+    })
+}
+
+#[tauri::command]
+pub async fn exec_resize(state: State<'_, AppState>, session_id: String, cols: u16, rows: u16) -> AppResult<()> {
+    state.exec.with(&session_id, |s| {
+        s.master
+            .resize(pty_size(cols, rows))
+            .map_err(|e| AppError::internal(format!("Cannot resize the terminal: {e:#}")))
+    })
+}
+
+#[tauri::command]
+pub async fn exec_stop(state: State<'_, AppState>, session_id: String) -> AppResult<()> {
+    let removed = state.exec.sessions.lock().unwrap().remove(&session_id);
+    if let Some(mut s) = removed {
+        let _ = s.killer.kill();
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn target_uses_short_names() {
+        assert_eq!(
+            ssm_target("arn:aws:ecs:us-east-1:1:cluster/web", "arn:aws:ecs:us-east-1:1:task/web/abc", "abc-123"),
+            "ecs:web_abc_abc-123"
+        );
+        assert_eq!(ssm_target("web", "abc", "r1"), "ecs:web_abc_r1");
+    }
+
+    #[test]
+    fn plugin_args_match_aws_cli() {
+        let a = plugin_args("s1", "wss://x", "tok", "eu-west-1", "dev", "ecs:c_t_r");
+        assert_eq!(a.len(), 6);
+        let session: serde_json::Value = serde_json::from_str(&a[0]).unwrap();
+        assert_eq!(session["SessionId"], "s1");
+        assert_eq!(session["StreamUrl"], "wss://x");
+        assert_eq!(session["TokenValue"], "tok");
+        assert_eq!(a[1], "eu-west-1");
+        assert_eq!(a[2], "StartSession");
+        assert_eq!(a[3], "dev");
+        assert_eq!(a[4], r#"{"Target":"ecs:c_t_r"}"#);
+        assert_eq!(a[5], "https://ssm.eu-west-1.amazonaws.com");
+    }
+
+    #[test]
+    fn utf8_split_keeps_incomplete_bytes() {
+        let text = "a€b😀";
+        let bytes = text.as_bytes();
+        let mut out = String::new();
+        let mut buf = Vec::new();
+        // Feed one byte at a time to cut every multi-byte character.
+        for b in bytes {
+            buf.push(*b);
+            out.push_str(&take_utf8(&mut buf));
+        }
+        assert_eq!(out, text);
+        assert!(buf.is_empty());
+
+        let mut buf = vec![b'x', 0xE2, 0x82];
+        assert_eq!(take_utf8(&mut buf), "x");
+        assert_eq!(buf, vec![0xE2, 0x82]);
+        buf.push(0xAC);
+        assert_eq!(take_utf8(&mut buf), "€");
+    }
+
+    #[test]
+    fn problems_name_each_missing_item() {
+        let ok = TaskFacts {
+            found: true,
+            exec_enabled: true,
+            last_status: Some("RUNNING".into()),
+            container_found: true,
+            agent_status: Some("RUNNING".into()),
+            runtime_id: Some("r".into()),
+        };
+        let plugin = Path::new("/usr/local/bin/session-manager-plugin");
+        assert!(problems(&ok, "app", Some(plugin)).is_empty());
+
+        let bad = TaskFacts { exec_enabled: false, last_status: Some("STOPPED".into()), ..ok };
+        let p = problems(&bad, "app", None);
+        assert_eq!(p.len(), 3);
+        assert!(p[0].contains("enableExecuteCommand"));
+
+        let no_agent = TaskFacts {
+            found: true,
+            exec_enabled: true,
+            last_status: Some("RUNNING".into()),
+            container_found: true,
+            agent_status: Some("STOPPED".into()),
+            runtime_id: None,
+        };
+        assert_eq!(problems(&no_agent, "app", Some(plugin)).len(), 1);
+    }
+}
