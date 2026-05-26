@@ -196,3 +196,101 @@ fn incomplete_tail(b: &[u8]) -> usize {
     0
 }
 
+fn pty_size(cols: u16, rows: u16) -> PtySize {
+    PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 }
+}
+
+#[tauri::command]
+pub async fn exec_start(app: AppHandle, state: State<'_, AppState>, req: ExecStart) -> AppResult<()> {
+    state.guard_write(&req.profile).await?;
+    let facts = task_facts(&state, &req.profile, &req.region, &req.cluster, &req.task_arn, &req.container).await?;
+    let plugin = find_plugin();
+    let problems = problems(&facts, &req.container, plugin.as_deref());
+    if !problems.is_empty() {
+        return Err(AppError::invalid(format!("Cannot start exec. {}", problems.join(" "))));
+    }
+    let (Some(plugin), Some(runtime_id)) = (plugin, facts.runtime_id) else {
+        return Err(AppError::invalid("The container has no runtime ID yet. Try again in a few seconds."));
+    };
+
+    let command = req.command.clone().filter(|c| !c.trim().is_empty()).unwrap_or_else(|| DEFAULT_COMMAND.to_owned());
+    let ctx = state.clients.get(&req.profile, &req.region).await;
+    state.limiter.acquire(&req.profile, &req.region).await;
+    let res = ctx
+        .ecs
+        .execute_command()
+        .cluster(&req.cluster)
+        .task(&req.task_arn)
+        .container(&req.container)
+        .command(command)
+        .interactive(true)
+        .send()
+        .await;
+    let out = match res {
+        Ok(o) => o,
+        Err(e) => return Err(fail(&state, &req.profile, &req.region, e).await),
+    };
+    let session = out.session().ok_or_else(|| AppError::internal("ExecuteCommand returned no session."))?;
+    let (Some(sid), Some(url), Some(token)) = (session.session_id(), session.stream_url(), session.token_value()) else {
+        return Err(AppError::internal("ExecuteCommand returned an incomplete session."));
+    };
+    let target = ssm_target(&req.cluster, &req.task_arn, &runtime_id);
+    let args = plugin_args(sid, url, token, &req.region, &req.profile, &target);
+
+    let pair = native_pty_system()
+        .openpty(pty_size(req.cols, req.rows))
+        .map_err(|e| AppError::internal(format!("Cannot open a terminal: {e:#}")))?;
+    let mut cmd = CommandBuilder::new(&plugin);
+    cmd.args(&args);
+    cmd.env("AWS_PROFILE", &req.profile);
+    cmd.env("AWS_REGION", &req.region);
+    cmd.env("TERM", "xterm-256color");
+    let mut child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| AppError::internal(format!("Cannot start {PLUGIN}: {e:#}")))?;
+    // Drop the slave so that the reader sees EOF when the child exits.
+    drop(pair.slave);
+    let reader = pair.master.try_clone_reader().map_err(|e| AppError::internal(format!("{e:#}")));
+    let writer = pair.master.take_writer().map_err(|e| AppError::internal(format!("{e:#}")));
+    let (mut reader, writer) = match (reader, writer) {
+        (Ok(r), Ok(w)) => (r, w),
+        (Err(e), _) | (_, Err(e)) => {
+            let _ = child.kill();
+            return Err(e);
+        }
+    };
+
+    let generation = state.exec.next_gen.fetch_add(1, Ordering::Relaxed);
+    state.exec.insert(
+        req.session_id.clone(),
+        ExecSession { generation, writer, master: pair.master, killer: child.clone_killer() },
+    );
+
+    let session_id = req.session_id.clone();
+    std::thread::spawn(move || {
+        let mut pending: Vec<u8> = Vec::new();
+        let mut chunk = [0u8; 8192];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    pending.extend_from_slice(&chunk[..n]);
+                    let data = take_utf8(&mut pending);
+                    if !data.is_empty() {
+                        let _ = app.emit(events::EXEC_OUTPUT, ExecOutput { session_id: session_id.clone(), data });
+                    }
+                }
+            }
+        }
+        if !pending.is_empty() {
+            let data = String::from_utf8_lossy(&pending).into_owned();
+            let _ = app.emit(events::EXEC_OUTPUT, ExecOutput { session_id: session_id.clone(), data });
+        }
+        let code = child.wait().ok().map(|s| s.exit_code() as i32);
+        let _ = app.emit(events::EXEC_EXIT, ExecExit { session_id: session_id.clone(), code });
+        app.state::<AppState>().exec.remove_if(&session_id, generation);
+    });
+    Ok(())
+}
+
