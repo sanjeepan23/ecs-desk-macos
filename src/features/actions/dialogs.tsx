@@ -43,3 +43,48 @@ export const useActionDialog = create<{ dialog: ActionDialog | null; show: (d: A
 
 const MAX_DESIRED = 500
 
+function afterSuccess() {
+  useApp
+    .getState()
+    .refresh()
+    .catch(() => {})
+}
+
+/** A text box for the typed confirmation. It reports true when the text equals `name`. */
+function TypedConfirm({ name, onChange }: { name: string; onChange: (ok: boolean) => void }) {
+  const id = useId()
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id} className="text-sm font-normal">
+        Type <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{name}</span> to confirm
+      </Label>
+      <Input
+        id={id}
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        className="font-mono"
+        onChange={(e) => onChange(e.target.value === name)}
+        autoFocus
+      />
+    </div>
+  )
+}
+
+function Spinner() {
+  return <HugeiconsIcon icon={Loading03Icon} className="size-4 animate-spin" />
+}
+
+interface ConfirmProps {
+  title: string
+  description: ReactNode
+  cta: string
+  busyCta: string
+  danger?: boolean
+  /** The name to type when the profile is production. */
+  confirmName: string
+  children?: ReactNode
+  disabled?: boolean
+  onConfirm: () => Promise<boolean>
+}
+
