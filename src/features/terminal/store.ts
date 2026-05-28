@@ -46,3 +46,31 @@ function newId(): string {
     : `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+export const useTerminal = create<TerminalState>((set) => ({
+  open: false,
+  sessions: [],
+  activeId: null,
+  toggle: () => set((s) => ({ open: !s.open })),
+  close: () => set({ open: false }),
+  show: () => set({ open: true }),
+  openExec: (target) => {
+    const id = newId()
+    const session: TermSession = { ...target, id, title: sessionTitle(target), status: 'connecting', exitCode: null }
+    set((s) => ({ sessions: [...s.sessions, session], activeId: id, open: true }))
+    return id
+  },
+  setActive: (id) => set({ activeId: id }),
+  setStatus: (id, status, exitCode) =>
+    set((s) => ({
+      sessions: s.sessions.map((x) => (x.id === id ? { ...x, status, exitCode: exitCode ?? x.exitCode } : x)),
+    })),
+  removeSession: (id) =>
+    set((s) => {
+      const i = s.sessions.findIndex((x) => x.id === id)
+      const sessions = s.sessions.filter((x) => x.id !== id)
+      const activeId = s.activeId === id ? (sessions[Math.min(i, sessions.length - 1)]?.id ?? null) : s.activeId
+      return { sessions, activeId }
+    }),
+}))
+
+export { newId }
