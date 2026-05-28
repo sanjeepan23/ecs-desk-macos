@@ -58,3 +58,95 @@ function theme(): ITheme {
   }
 }
 
+export const TERM_BG = () => theme().background ?? '#0d0e12'
+
+function ensureListeners(): Promise<void> {
+  if (!listeners) {
+    listeners = Promise.all([
+      events.onExecOutput((o) => runtimes.get(o.sessionId)?.term.write(o.data)),
+      events.onExecExit((e) => markEnded(e.sessionId, e.code)),
+    ]).then(() => undefined)
+  }
+  return listeners
+}
+
+function markEnded(id: string, code: number | null) {
+  const rt = runtimes.get(id)
+  if (!rt || rt.ended) return
+  rt.ended = true
+  rt.term.write(`\r\n\x1b[90m[session ended, exit code ${code ?? 'unknown'}]\x1b[0m\r\n`)
+  useTerminal.getState().setStatus(id, 'ended', code)
+}
+
+/** Shows the session terminal inside `el`. The first call also starts the backend session. */
+export function attach(s: TermSession, el: HTMLElement): void {
+  const existing = runtimes.get(s.id)
+  if (existing) {
+    const node = existing.term.element
+    if (node && node.parentElement !== el) el.appendChild(node)
+    fitSession(s.id)
+    existing.term.refresh(0, existing.term.rows - 1)
+    return
+  }
+
+  const term = new Terminal({
+    fontFamily: MONO_FONT,
+    fontSize: 12.5,
+    lineHeight: 1.25,
+    cursorBlink: true,
+    scrollback: 5000,
+    allowProposedApi: false,
+    theme: theme(),
+  })
+  const fit = new FitAddon()
+  term.loadAddon(fit)
+  const rt: Runtime = { term, fit, started: false, ended: false, cols: 0, rows: 0 }
+  runtimes.set(s.id, rt)
+  term.open(el)
+  safeFit(rt)
+
+  // xterm measures the font when it opens. Measure again when the web font is ready.
+  document.fonts?.load(`12.5px 'JetBrains Mono Variable'`).then(() => {
+    if (!runtimes.has(s.id)) return
+    term.options.fontFamily = MONO_FONT
+    fitSession(s.id)
+  })
+
+  term.onData((d) => {
+    if (!rt.started || rt.ended) return
+    api.execWrite(s.id, d).catch(() => {})
+  })
+
+  void (async () => {
+    await ensureListeners()
+    try {
+      await api.execStart({
+        sessionId: s.id,
+        profile: s.profile,
+        region: s.region,
+        cluster: s.cluster,
+        taskArn: s.taskArn,
+        container: s.container,
+        command: s.command ?? null,
+        cols: term.cols,
+        rows: term.rows,
+      })
+      if (!runtimes.has(s.id)) {
+        // The user closed the tab while the session started.
+        api.execStop(s.id).catch(() => {})
+        return
+      }
+      rt.started = true
+      rt.cols = term.cols
+      rt.rows = term.rows
+      useTerminal.getState().setStatus(s.id, 'open')
+      term.focus()
+    } catch (e) {
+      const err = asAppError(e)
+      term.write(`\x1b[31mCould not start the exec session: ${err.message}\x1b[0m\r\n`)
+      rt.ended = true
+      useTerminal.getState().setStatus(s.id, 'ended', null)
+    }
+  })()
+}
+
