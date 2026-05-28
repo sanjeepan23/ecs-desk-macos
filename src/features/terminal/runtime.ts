@@ -150,3 +150,41 @@ export function attach(s: TermSession, el: HTMLElement): void {
   })()
 }
 
+function safeFit(rt: Runtime) {
+  const el = rt.term.element?.parentElement
+  if (!el || el.clientWidth === 0 || el.clientHeight === 0) return
+  try {
+    rt.fit.fit()
+  } catch {
+    // fit() fails when the renderer has no size yet. The next resize tries again.
+  }
+}
+
+/** Fits the terminal to its container and sends the new size to the backend. */
+export function fitSession(id: string): void {
+  const rt = runtimes.get(id)
+  if (!rt) return
+  safeFit(rt)
+  const { cols, rows } = rt.term
+  if (rt.started && !rt.ended && (cols !== rt.cols || rows !== rt.rows)) {
+    rt.cols = cols
+    rt.rows = rows
+    api.execResize(id, cols, rows).catch(() => {})
+  }
+}
+
+export function focusSession(id: string): void {
+  runtimes.get(id)?.term.focus()
+}
+
+/** Stops the backend session if it runs, and frees the terminal. */
+export function disposeSession(id: string): void {
+  const rt = runtimes.get(id)
+  if (!rt) {
+    api.execStop(id).catch(() => {})
+    return
+  }
+  runtimes.delete(id)
+  if (rt.started && !rt.ended) api.execStop(id).catch(() => {})
+  rt.term.dispose()
+}
