@@ -65,3 +65,41 @@ pub async fn stop_task(state: State<'_, AppState>, target: TaskRef, reason: Opti
         .ok_or_else(|| AppError::internal("StopTask returned no task."))
 }
 
+fn validate_desired(desired: i32) -> AppResult<()> {
+    if !(0..=MAX_DESIRED).contains(&desired) {
+        return Err(AppError::invalid(format!("Desired count must be from 0 to {MAX_DESIRED}.")));
+    }
+    Ok(())
+}
+
+async fn update_service(
+    state: &AppState,
+    target: &ServiceRef,
+    apply: impl FnOnce(
+        aws_sdk_ecs::operation::update_service::builders::UpdateServiceFluentBuilder,
+    ) -> aws_sdk_ecs::operation::update_service::builders::UpdateServiceFluentBuilder,
+) -> AppResult<ServiceSummary> {
+    let ctx = state.clients.get(&target.profile, &target.region).await;
+    state.limiter.acquire(&target.profile, &target.region).await;
+    let req = ctx.ecs.update_service().cluster(&target.cluster).service(&target.service);
+    let out = match apply(req).send().await {
+        Ok(o) => o,
+        Err(e) => return Err(fail(state, &target.profile, &target.region, e).await),
+    };
+    out.service()
+        .map(convert::service_summary)
+        .ok_or_else(|| AppError::internal("UpdateService returned no service."))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn desired_count_limits() {
+        assert!(validate_desired(0).is_ok());
+        assert!(validate_desired(1000).is_ok());
+        assert!(validate_desired(-1).is_err());
+        assert!(validate_desired(1001).is_err());
+    }
+}
