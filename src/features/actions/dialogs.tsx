@@ -88,3 +88,49 @@ interface ConfirmProps {
   onConfirm: () => Promise<boolean>
 }
 
+function ConfirmDialog({ title, description, cta, busyCta, danger, confirmName, children, disabled, onConfirm }: ConfirmProps) {
+  const hide = useActionDialog((s) => s.hide)
+  const [typed] = useState(needsTypedConfirm)
+  const [typedOk, setTypedOk] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const canConfirm = !busy && !disabled && (!typed || typedOk)
+
+  const run = async () => {
+    if (!canConfirm) return
+    setBusy(true)
+    const ok = await onConfirm()
+    setBusy(false)
+    if (ok) hide()
+  }
+
+  return (
+    <AlertDialog open onOpenChange={(o) => !o && !busy && hide()}>
+      <AlertDialogContent>
+        <form
+          className="grid gap-5"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void run()
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>{title}</AlertDialogTitle>
+            <AlertDialogDescription>{description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {children}
+          {typed && <TypedConfirm name={confirmName} onChange={setTypedOk} />}
+          <AlertDialogFooter>
+            <AlertDialogCancel type="button" disabled={busy}>
+              Cancel
+            </AlertDialogCancel>
+            <Button type="submit" variant={danger ? 'destructive' : 'default'} disabled={!canConfirm} autoFocus={!typed}>
+              {busy && <Spinner />}
+              {busy ? busyCta : cta}
+            </Button>
+          </AlertDialogFooter>
+        </form>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
