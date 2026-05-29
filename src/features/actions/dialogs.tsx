@@ -258,3 +258,70 @@ function RollbackDialog({ svc }: { svc: ServiceSummary }) {
   )
 }
 
+function StopDialog({ task }: { task: Task }) {
+  const id8 = shortTaskId(task.id || task.arn)
+  return (
+    <ConfirmDialog
+      title={`Stop task ${id8}?`}
+      description={
+        task.serviceName
+          ? `ECS stops this task. The ${task.serviceName} service then starts a new task to keep its desired count.`
+          : 'ECS stops this task. No service replaces it.'
+      }
+      cta="Stop task"
+      busyCta="Stopping"
+      danger
+      confirmName={task.serviceName ?? id8}
+      onConfirm={async () => {
+        const ctx = currentCtx()
+        if (!ctx) return false
+        try {
+          await api.stopTask(taskRef(ctx, task), 'Stopped by user from ECS Desk.')
+          toast.success(`Stopping task ${id8}`, {
+            description: task.serviceName ? `${task.serviceName} starts a new task to replace it.` : undefined,
+          })
+          afterSuccess()
+          return true
+        } catch (e) {
+          toastError(`Could not stop task ${id8}`, asAppError(e))
+          return false
+        }
+      }}
+    />
+  )
+}
+
+/** Finds the CPU units and memory (MiB) of one task of the service. */
+function useTaskSize(svc: ServiceSummary): { cpu: number; mem: number } | null {
+  const tasks = useApp((s) => s.tasks)
+  const fromTasks = useMemo(() => {
+    const t = tasks.find((x) => x.serviceName === svc.name && x.clusterName === svc.clusterName && x.cpu && x.memory)
+    const cpu = parseUnits(t?.cpu, 'cpu')
+    const mem = parseUnits(t?.memory, 'memory')
+    return cpu && mem ? { cpu, mem } : null
+  }, [tasks, svc.name, svc.clusterName])
+  const [fromDef, setFromDef] = useState<{ cpu: number; mem: number } | null>(null)
+
+  useEffect(() => {
+    if (fromTasks) return
+    const ctx = currentCtx()
+    if (!ctx) return
+    let live = true
+    api
+      .getTaskDefinition(ctx.profile, ctx.region, svc.taskDefinition)
+      .then((td) => {
+        // The backend can return the task definition itself, or the DescribeTaskDefinition output.
+        const def = (td.taskDefinition as Record<string, unknown> | undefined) ?? td
+        const cpu = parseUnits(def.cpu as string | number | null, 'cpu')
+        const mem = parseUnits(def.memory as string | number | null, 'memory')
+        if (live && cpu && mem) setFromDef({ cpu, mem })
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [fromTasks, svc.taskDefinition])
+
+  return fromTasks ?? fromDef
+}
+
