@@ -325,3 +325,96 @@ function useTaskSize(svc: ServiceSummary): { cpu: number; mem: number } | null {
   return fromTasks ?? fromDef
 }
 
+function ScaleDialog({ svc }: { svc: ServiceSummary }) {
+  const hide = useActionDialog((s) => s.hide)
+  const [text, setText] = useState(String(svc.desired))
+  const [busy, setBusy] = useState(false)
+  const [typedOk, setTypedOk] = useState(false)
+  const size = useTaskSize(svc)
+  const inputId = useId()
+
+  const parsed = Number(text)
+  const valid = text.trim() !== '' && Number.isInteger(parsed) && parsed >= 0 && parsed <= MAX_DESIRED
+  const value = valid ? parsed : svc.desired
+  const scalingDown = valid && parsed < svc.desired
+  // Scale down stops tasks, so production asks for the typed name.
+  const typed = scalingDown && needsTypedConfirm()
+  const canSave = valid && !busy && parsed !== svc.desired && (!typed || typedOk)
+
+  const step = (d: number) => setText(String(Math.max(0, Math.min(MAX_DESIRED, value + d))))
+
+  const save = async () => {
+    if (!canSave) return
+    const ctx = currentCtx()
+    if (!ctx) return
+    setBusy(true)
+    try {
+      const res = await api.scaleService(serviceRef(ctx, svc), parsed)
+      toast.success(`Scaled ${res.name} to ${res.desired} tasks`, { description: `Was ${svc.desired}.` })
+      afterSuccess()
+      watchService(serviceRef(ctx, svc))
+      hide()
+    } catch (e) {
+      toastError(`Could not scale ${svc.name}`, asAppError(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && !busy && hide()}>
+      <DialogContent>
+        <form
+          className="grid gap-5"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void save()
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Scale {svc.name}</DialogTitle>
+            <DialogDescription>Set the desired task count. It is {svc.desired} now.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor={inputId}>Desired tasks</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="icon-lg" onClick={() => step(-1)} disabled={value <= 0} aria-label="Decrease">
+                <HugeiconsIcon icon={MinusSignIcon} />
+              </Button>
+              <Input
+                id={inputId}
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={MAX_DESIRED}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                aria-invalid={!valid}
+                className="h-10 w-24 text-center text-base tabular-nums"
+                autoFocus
+              />
+              <Button type="button" variant="outline" size="icon-lg" onClick={() => step(1)} disabled={value >= MAX_DESIRED} aria-label="Increase">
+                <HugeiconsIcon icon={PlusSignIcon} />
+              </Button>
+              {size && <span className="ml-1 text-sm text-muted-foreground tabular-nums">{capacityText(value, size.cpu, size.mem)}</span>}
+            </div>
+            {!valid && <p className="text-xs text-destructive">Enter a whole number from 0 to {MAX_DESIRED}.</p>}
+            {valid && parsed === 0 && <p className="text-xs text-muted-foreground">At 0, ECS stops all tasks of this service.</p>}
+          </div>
+          {typed && <TypedConfirm name={svc.name} onChange={setTypedOk} />}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={hide} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!canSave}>
+              {busy && <Spinner />}
+              {busy ? 'Saving' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
