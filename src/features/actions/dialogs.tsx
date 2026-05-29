@@ -134,3 +134,127 @@ function ConfirmDialog({ title, description, cta, busyCta, danger, confirmName, 
   )
 }
 
+function DeployDialog({ svc }: { svc: ServiceSummary }) {
+  return (
+    <ConfirmDialog
+      title={`Force a new deployment of ${svc.name}?`}
+      description={`ECS starts ${svc.desired} new tasks with ${svc.taskDefinitionShort}, then stops the old tasks.`}
+      cta="Deploy"
+      busyCta="Deploying"
+      confirmName={svc.name}
+      onConfirm={async () => {
+        const ctx = currentCtx()
+        if (!ctx) return false
+        try {
+          const res = await api.forceDeploy(serviceRef(ctx, svc))
+          toast.success(`Deploying ${res.name}`, { description: `${res.taskDefinitionShort} · ${res.desired} tasks` })
+          afterSuccess()
+          watchService(serviceRef(ctx, svc))
+          return true
+        } catch (e) {
+          toastError(`Could not deploy ${svc.name}`, asAppError(e))
+          return false
+        }
+      }}
+    />
+  )
+}
+
+interface Revision {
+  value: string
+  short: string
+  revision: number | null
+}
+
+function toRevision(td: string): Revision {
+  return { value: td, short: shortTaskDef(td), revision: parseTaskDef(td).revision }
+}
+
+function RollbackDialog({ svc }: { svc: ServiceSummary }) {
+  const current = parseTaskDef(svc.taskDefinition)
+  const [revs, setRevs] = useState<Revision[] | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string>('')
+
+  useEffect(() => {
+    const ctx = currentCtx()
+    if (!ctx) return
+    let live = true
+    api
+      .listTaskDefinitionRevisions(ctx.profile, ctx.region, current.family)
+      .then((list) => list.map(toRevision))
+      .catch((e) => {
+        // Fall back to the revision before the current one.
+        setNote(`Could not list revisions: ${asAppError(e).message}`)
+        const prev = (current.revision ?? 0) - 1
+        return prev > 0 ? [toRevision(`${current.family}:${prev}`)] : []
+      })
+      .then((list) => {
+        if (!live) return
+        const others = list
+          .filter((r) => r.revision !== current.revision)
+          .sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0))
+        setRevs(others)
+        const prev = others.find((r) => current.revision == null || (r.revision ?? 0) < current.revision) ?? others[0]
+        setSelected(prev?.value ?? '')
+      })
+    return () => {
+      live = false
+    }
+  }, [current.family, current.revision])
+
+  const target = revs?.find((r) => r.value === selected)
+
+  return (
+    <ConfirmDialog
+      title={`Roll back ${svc.name}?`}
+      description={`ECS replaces the ${svc.running} running tasks of ${svc.taskDefinitionShort} with the revision you select.`}
+      cta="Roll back"
+      busyCta="Rolling back"
+      danger
+      confirmName={svc.name}
+      disabled={!target}
+      onConfirm={async () => {
+        const ctx = currentCtx()
+        if (!ctx || !target) return false
+        try {
+          const res = await api.rollbackService(serviceRef(ctx, svc), target.value)
+          toast.success(`Rolling back ${res.name}`, { description: `Target revision ${res.taskDefinitionShort}` })
+          afterSuccess()
+          watchService(serviceRef(ctx, svc))
+          return true
+        } catch (e) {
+          toastError(`Could not roll back ${svc.name}`, asAppError(e))
+          return false
+        }
+      }}
+    >
+      <div className="grid gap-2">
+        <Label className="text-sm">Target revision</Label>
+        {revs == null ? (
+          <div className="flex h-9 items-center gap-2 text-sm text-muted-foreground">
+            <Spinner /> Loading revisions
+          </div>
+        ) : revs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No other revision of {current.family} exists.</p>
+        ) : (
+          <Select value={selected} onValueChange={setSelected}>
+            <SelectTrigger className="w-full font-mono">
+              <SelectValue placeholder="Select a revision" />
+            </SelectTrigger>
+            <SelectContent>
+              {revs.map((r) => (
+                <SelectItem key={r.value} value={r.value} className="font-mono">
+                  {r.short}
+                  {current.revision != null && r.revision === current.revision - 1 ? '  (previous)' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {note && <p className="text-xs text-muted-foreground">{note}</p>}
+      </div>
+    </ConfirmDialog>
+  )
+}
+
