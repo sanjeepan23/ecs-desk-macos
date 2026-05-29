@@ -418,3 +418,56 @@ function ScaleDialog({ svc }: { svc: ServiceSummary }) {
   )
 }
 
+function ExecProblemsDialog({ d }: { d: Extract<ActionDialog, { kind: 'execProblems' }> }) {
+  const hide = useActionDialog((s) => s.hide)
+  return (
+    <Dialog open onOpenChange={(o) => !o && hide()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <HugeiconsIcon icon={Alert02Icon} className="size-5 text-amber-600 dark:text-amber-400" />
+            Exec is not ready for {d.container}
+          </DialogTitle>
+          <DialogDescription>
+            Task {shortTaskId(d.task.id || d.task.arn)}
+            {d.task.serviceName ? ` of ${d.task.serviceName}` : ''}. Fix these items, then try again.
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="grid gap-2 text-sm">
+          {d.problems.map((p) => (
+            <li key={p} className="flex gap-2 rounded-xl bg-muted/60 px-3 py-2">
+              <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-500" />
+              <span>{p}</span>
+            </li>
+          ))}
+        </ul>
+        {d.pluginPath && (
+          <p className="text-xs text-muted-foreground">
+            Session Manager plugin: <span className="font-mono">{d.pluginPath}</span>
+          </p>
+        )}
+        <DialogFooter>
+          <Button onClick={hide}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Mount once near the app root. */
+export function ActionDialogsHost() {
+  const dialog = useActionDialog((s) => s.dialog)
+  if (!dialog) return null
+  switch (dialog.kind) {
+    case 'deploy':
+      return <DeployDialog key={dialog.svc.arn} svc={dialog.svc} />
+    case 'rollback':
+      return <RollbackDialog key={dialog.svc.arn} svc={dialog.svc} />
+    case 'scale':
+      return <ScaleDialog key={dialog.svc.arn} svc={dialog.svc} />
+    case 'stop':
+      return <StopDialog key={dialog.task.arn} task={dialog.task} />
+    case 'execProblems':
+      return <ExecProblemsDialog d={dialog} />
+  }
+}
