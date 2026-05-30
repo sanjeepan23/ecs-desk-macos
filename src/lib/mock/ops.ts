@@ -301,3 +301,52 @@ function resolveTargets(profile: string, region: string, taskDefinition: string)
     }))
 }
 
+const tails = new Map<string, ReturnType<typeof setInterval>>()
+
+function startTail(sessionId: string, ctx: TailCtx, filter: string | null) {
+  stopTail(sessionId)
+  if (!ctx.targets.length) throw mockError('invalid', 'No log targets to tail.')
+  tails.set(
+    sessionId,
+    setInterval(() => {
+      const line = genLine(ctx, Date.now(), Math.random)
+      if (matchesFilter(line.message, filter)) emit(EVENTS.logLines, { sessionId, lines: [line] })
+    }, 700),
+  )
+}
+
+function stopTail(sessionId: string) {
+  clearInterval(tails.get(sessionId))
+  tails.delete(sessionId)
+}
+
+function searchLogs(ctx: TailCtx, filter: string | null, startMs: number, endMs: number, limit: number | null): LogLine[] {
+  const step = 1700
+  const out: LogLine[] = []
+  const key = ctx.targets.map((x) => x.group + x.container).join(',')
+  // Fixed time slots, so the same window always gives the same lines.
+  for (let t = Math.ceil(startMs / step) * step; t <= endMs; t += step) {
+    const line = genLine(ctx, t, rng('slot' + t + key))
+    if (matchesFilter(line.message, filter)) out.push(line)
+  }
+  return out.slice(-(limit ?? 1000))
+}
+
+/* ---------- Metrics ---------- */
+
+function series(seed: string, base: number, kind: 'cpu' | 'mem', failing: boolean, n: number, periodMs: number): MetricPoint[] {
+  const r = rng(seed)
+  const end = Math.floor(Date.now() / periodMs) * periodMs
+  let v = base
+  const out: MetricPoint[] = []
+  for (let i = 0; i < n; i++) {
+    if (failing && kind === 'mem') v = Math.min(99, (i % 14) * 6.5 + 30 + r() * 4)
+    else {
+      v += (r() - 0.5) * 7 + (base - v) * 0.15
+      if (kind === 'cpu' && r() < 0.05) v += 18
+    }
+    out.push({ t: end - (n - 1 - i) * periodMs, v: Math.max(1, Math.min(100, Math.round(v * 10) / 10)) })
+  }
+  return out
+}
+
