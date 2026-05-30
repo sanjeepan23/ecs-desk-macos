@@ -201,3 +201,49 @@ function scale(t: ServiceRef, desired: number) {
   return clone(s)
 }
 
+function stopTask(t: TaskRef, reason: string | null) {
+  guardWrite(t.profile)
+  const hit = findTask(t.profile, t.region, t.cluster, t.taskArn)
+  if (!hit) throw mockError('notFound', 'The task was not found. It may have stopped already.')
+  const { svc, task } = hit
+  if (task.desiredStatus === 'STOPPED') return clone(task)
+  task.desiredStatus = 'STOPPED'
+  task.lastStatus = 'DEACTIVATING'
+  emitNow()
+  setTimeout(() => {
+    markStopped(task, reason ?? 'Task stopped by user from ECS Desk.')
+    moveToStopped(svc, task)
+    const s = svc.summary
+    addEvent(svc, `(service ${s.name}) stopped 1 running tasks: (task ${task.id.slice(0, 8)}).`)
+    if (svc.tasks.length < s.desired) {
+      const nt = makeTask(svc, rng(task.id + 'n'), { startedAt: Date.now() })
+      svc.tasks.push(nt)
+      addEvent(svc, `(service ${s.name}) has started 1 tasks: (task ${nt.id.slice(0, 8)}).`)
+    }
+    recompute(svc)
+    emitNow()
+  }, 1400)
+  return clone(task)
+}
+
+/* ---------- Logs ---------- */
+
+const LOGT: Record<string, [string, string][]> = {
+  'api-gateway': [['INFO', 'GET /v1/orders 200 23ms'], ['INFO', 'POST /v1/checkout 201 118ms'], ['INFO', 'GET /v1/health 200 2ms'], ['WARN', 'upstream orders-api slow: 812ms'], ['INFO', 'GET /v1/catalog?page=3 200 41ms'], ['DEBUG', 'jwt verified sub=usr_8f2a']],
+  'orders-api': [['INFO', 'order ord_29f1 created total=84.20 USD'], ['INFO', 'GET /orders/ord_77c2 200 14ms'], ['INFO', 'db pool: 18/40 in use'], ['WARN', 'retrying inventory reserve (attempt 2)'], ['INFO', 'order ord_a913 paid']],
+  'payments-worker': [['INFO', 'consumed 25 messages from payments-queue'], ['INFO', 'charge ch_31aa succeeded'], ['INFO', 'worker started, revision 58'], ['WARN', 'visibility timeout extended for msg 9f2e'], ['INFO', 'charge ch_77d0 succeeded']],
+  notifications: [['INFO', 'sending batch of 500 emails'], ['WARN', 'heap usage 91% (466 MiB / 512 MiB)'], ['ERROR', 'java.lang.OutOfMemoryError: Java heap space'], ['ERROR', '  at com.example.notify.TemplateCache.load(TemplateCache.java:88)'], ['WARN', 'GC overhead limit near: 97% time in GC'], ['INFO', 'loaded 1,204 templates into cache']],
+  'web-frontend': [['INFO', 'GET / 200 31ms'], ['INFO', 'GET /_next/static/chunks/app.js 200 3ms'], ['INFO', 'GET /cart 200 58ms'], ['WARN', 'image optimizer cache miss']],
+  'ingest-worker': [['INFO', 'batch 88213 written: 10,000 rows'], ['INFO', 'kinesis shard-0004 lag 120 ms'], ['WARN', 'throttled by DynamoDB, backoff 200ms']],
+  'etl-scheduler': [['INFO', 'job nightly-rollup queued'], ['INFO', 'job hourly-sync finished in 42 s']],
+  'search-indexer': [['INFO', 'indexed 2,000 docs into products-v7'], ['INFO', 'refresh interval 1s'], ['WARN', 'segment merge took 1.8 s']],
+}
+const GENERIC: [string, string][] = [['INFO', 'request handled 200 12ms'], ['INFO', 'health check ok'], ['DEBUG', 'cache hit ratio 0.93'], ['WARN', 'slow downstream call: 640ms']]
+const OTEL: [string, string][] = [['INFO', 'Everything is ready. Begin running and processing data.'], ['INFO', 'MetricsExporter exported 118 data points'], ['DEBUG', 'TracesExporter exported 42 spans'], ['WARN', 'Exporting failed. Will retry the request after interval. error="context deadline exceeded"']]
+
+interface TailCtx {
+  profile: string
+  region: string
+  targets: LogTarget[]
+}
+
