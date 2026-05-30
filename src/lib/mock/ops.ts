@@ -141,3 +141,63 @@ function startRollout(svc: MockService, rev: number, reason: string) {
   emitNow()
 }
 
+function revOf(td: string): number {
+  return Number((td.split('/').pop() ?? td).split(':')[1]) || 0
+}
+
+/* ---------- Actions ---------- */
+
+function forceDeploy(t: ServiceRef) {
+  guardWrite(t.profile)
+  const svc = requireService(t)
+  startRollout(svc, revOf(svc.summary.taskDefinition), 'has started a new deployment (forced).')
+  return clone(svc.summary)
+}
+
+function rollback(t: ServiceRef, taskDefinition: string) {
+  guardWrite(t.profile)
+  const svc = requireService(t)
+  const rev = revOf(taskDefinition)
+  if (!rev) throw mockError('invalid', `${taskDefinition} is not a valid task definition.`)
+  startRollout(svc, rev, `updated the task definition to ${svc.summary.name}:${rev} (rollback).`)
+  return clone(svc.summary)
+}
+
+function scale(t: ServiceRef, desired: number) {
+  guardWrite(t.profile)
+  if (!Number.isInteger(desired) || desired < 0) throw mockError('invalid', 'The desired count must be a whole number of 0 or more.')
+  const svc = requireService(t)
+  const s = svc.summary
+  const prev = s.desired
+  s.desired = desired
+  const primary = s.deployments.find((d) => d.status === 'PRIMARY')
+  if (primary) primary.desired = desired
+  addEvent(svc, `(service ${s.name}) desired count changed from ${prev} to ${desired}.`)
+  if (desired < svc.tasks.length) {
+    // ECS stops tasks that are not running first.
+    const order = [...svc.tasks].sort((a, b) => Number(a.lastStatus === 'RUNNING') - Number(b.lastStatus === 'RUNNING'))
+    const extra = order.slice(0, svc.tasks.length - desired)
+    for (const task of extra) {
+      markStopped(task, 'Scaling activity initiated by user from ECS Desk.')
+      moveToStopped(svc, task)
+    }
+    addEvent(svc, `(service ${s.name}) has stopped ${extra.length} running tasks.`)
+    if (primary) primary.running = Math.min(primary.running, desired)
+  } else if (desired > svc.tasks.length) {
+    const add = desired - svc.tasks.length
+    s.pending = add
+    setTimeout(() => {
+      const r = rng(s.arn + Date.now())
+      for (let i = 0; i < add; i++) svc.tasks.push(makeTask(svc, r, { startedAt: Date.now() }))
+      if (primary) primary.running = Math.min(desired, svc.tasks.length)
+      addEvent(svc, `(service ${s.name}) has started ${add} tasks.`)
+      recompute(svc)
+      emitNow()
+    }, 1800)
+  }
+  recompute(svc)
+  if (desired > svc.tasks.length) s.pending = desired - svc.tasks.length
+  emitNow()
+  return clone(s)
+}
+
