@@ -247,3 +247,57 @@ interface TailCtx {
   targets: LogTarget[]
 }
 
+const familyOf = (group: string) => group.split('/').filter(Boolean).pop() ?? group
+
+function pickTarget(targets: LogTarget[], r: () => number): LogTarget {
+  // Sidecars log less than the app container.
+  const app = targets.filter((t) => t.container === familyOf(t.group))
+  if (app.length && r() < 0.88) return app[Math.floor(r() * app.length)]
+  return targets[Math.floor(r() * targets.length)]
+}
+
+function genLine(ctx: TailCtx, t: number, r: () => number): LogLine {
+  const target = pickTarget(ctx.targets, r)
+  const family = familyOf(target.group)
+  const svc = world(ctx.profile, ctx.region)
+    .flatMap((c) => c.services)
+    .find((s) => s.summary.name === family)
+  const container = target.container ?? family
+  const tpl = container === 'otel-collector' ? OTEL : (LOGT[family] ?? GENERIC)
+  const failing = container !== 'otel-collector' && isFailing(svc, family)
+  const pick = failing && r() < 0.45 ? tpl[2 + Math.floor(r() * 2)] : tpl[Math.floor(r() * tpl.length)]
+  const tasks = svc?.tasks.length ? svc.tasks : null
+  const taskId = tasks ? tasks[Math.floor(r() * tasks.length)].id : hex(rng(family), 32)
+  return {
+    timestamp: t,
+    level: pick[0],
+    message: pick[1],
+    group: target.group,
+    stream: `${target.streamPrefix ?? 'ecs'}/${container}/${taskId}`,
+  }
+}
+
+/** A small subset of CloudWatch filter patterns: all terms must occur, and "-term" excludes. */
+function matchesFilter(msg: string, filter: string | null | undefined): boolean {
+  if (!filter) return true
+  const terms = (filter.match(/"[^"]*"|\S+/g) ?? []).map((x) => x.replace(/^"|"$/g, '').toLowerCase()).filter(Boolean)
+  const m = msg.toLowerCase()
+  return terms.every((x) => (x.startsWith('-') && x.length > 1 ? !m.includes(x.slice(1)) : m.includes(x)))
+}
+
+function resolveTargets(profile: string, region: string, taskDefinition: string): LogTarget[] {
+  const td = taskDefinitionJson(profile, region, taskDefinition)
+  if (!td) {
+    const family = (taskDefinition.split('/').pop() ?? taskDefinition).split(':')[0]
+    return [{ group: `/ecs/${family}`, streamPrefix: 'ecs', container: family }]
+  }
+  const defs = (td.containerDefinitions as { name: string; logConfiguration?: { logDriver: string; options?: Record<string, string> } }[]) ?? []
+  return defs
+    .filter((c) => c.logConfiguration?.logDriver === 'awslogs' && c.logConfiguration.options?.['awslogs-group'])
+    .map((c) => ({
+      group: c.logConfiguration!.options!['awslogs-group'],
+      streamPrefix: c.logConfiguration!.options!['awslogs-stream-prefix'] ?? null,
+      container: c.name,
+    }))
+}
+
