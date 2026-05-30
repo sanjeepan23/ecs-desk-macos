@@ -350,3 +350,56 @@ function series(seed: string, base: number, kind: 'cpu' | 'mem', failing: boolea
   return out
 }
 
+function getMetrics(profile: string, region: string, cluster: string, service: string, rangeMinutes: number): ServiceMetrics {
+  checkSession(profile)
+  const svc = findService(profile, region, cluster, service)
+  const periodSecs = rangeMinutes <= 60 ? 60 : rangeMinutes <= 360 ? 300 : rangeMinutes <= 1440 ? 900 : 3600
+  const n = Math.max(2, Math.round((rangeMinutes * 60) / periodSecs))
+  const r = rng('base' + service)
+  const cpuBase = svc?.cpuBase ?? 10 + Math.floor(r() * 50)
+  const memBase = svc?.memBase ?? 25 + Math.floor(r() * 45)
+  const failing = isFailing(svc, service)
+  const seed = profile + cluster + service + rangeMinutes
+  return {
+    cpu: series(seed + 'cpu', cpuBase, 'cpu', false, n, periodSecs * 1000),
+    memory: series(seed + 'mem', memBase, 'mem', failing, n, periodSecs * 1000),
+    periodSecs,
+  }
+}
+
+/* ---------- Exec: a small fake shell ---------- */
+
+interface ExecSession {
+  req: ExecStart
+  line: string
+  /** True while the input is inside an escape sequence, such as an arrow key. */
+  inEscape: boolean
+  port: number | null
+  rev: number
+  startedAt: number
+  env: string
+}
+
+const execs = new Map<string, ExecSession>()
+const PROMPT = '\x1b[32m/app #\x1b[0m '
+const dim = (s: string) => `\x1b[90m${s}\x1b[0m`
+const out = (sessionId: string, data: string) => emit(EVENTS.execOutput, { sessionId, data })
+
+function execCheck(profile: string, region: string, cluster: string, taskArn: string, container: string): ExecCheck {
+  checkSession(profile)
+  const problems: string[] = []
+  const hit = findTask(profile, region, cluster, taskArn)
+  if (!hit) problems.push('The task was not found. It may have stopped.')
+  else {
+    const { task } = hit
+    const c = task.containers.find((x) => x.name === container)
+    if (task.lastStatus !== 'RUNNING') problems.push(`The task is ${task.lastStatus}. Exec needs a running task.`)
+    if (!task.enableExecuteCommand)
+      problems.push(`enableExecuteCommand is false on ${hit.svc.summary.name}. Turn it on for the service, then force a new deployment.`)
+    if (!c) problems.push(`The task has no container named ${container}.`)
+    else if (task.enableExecuteCommand && c.execAgentStatus !== 'RUNNING')
+      problems.push(`The ExecuteCommandAgent in ${container} is ${c.execAgentStatus ?? 'not running'}.`)
+  }
+  return { ok: problems.length === 0, problems, pluginPath: '/usr/local/bin/session-manager-plugin' }
+}
+
