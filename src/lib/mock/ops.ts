@@ -403,3 +403,71 @@ function execCheck(profile: string, region: string, cluster: string, taskArn: st
   return { ok: problems.length === 0, problems, pluginPath: '/usr/local/bin/session-manager-plugin' }
 }
 
+function runCommand(s: ExecSession, raw: string): string | { exit: true } | { clear: true } {
+  const c = raw.trim()
+  if (!c) return ''
+  if (c === 'help') return 'Try: ls, ps, env, df -h, cat /etc/os-release, curl localhost/health, clear, exit'
+  if (c === 'ls') return 'bin  config  node_modules  package.json  server.js  templates'
+  if (c === 'ps' || c === 'ps aux')
+    return 'PID   USER     TIME  COMMAND\n    1 app       2:14 node server.js\n   48 root      0:00 /managed-agents/execute-command/ssm-agent-worker\n   61 app       0:00 /bin/sh\n   62 app       0:00 ps'
+  if (c === 'env')
+    return `APP_ENV=${s.env}\nLOG_LEVEL=info\nAWS_REGION=${s.req.region}\nECS_CONTAINER_METADATA_URI_V4=http://169.254.170.2/v4/${(s.req.taskArn.split('/').pop() ?? '').slice(0, 12)}\nDATABASE_URL=********`
+  if (c === 'df -h') return 'Filesystem   Size  Used Avail Use% Mounted on\noverlay       30G  6.1G   22G  22% /'
+  if (c === 'cat /etc/os-release') return 'NAME="Alpine Linux"\nVERSION_ID=3.20.3\nPRETTY_NAME="Alpine Linux v3.20"'
+  if (c === 'curl' || c.startsWith('curl '))
+    return s.port
+      ? `{"status":"ok","revision":${s.rev},"uptime_s":${Math.round((Date.now() - s.startedAt) / 1000)}}`
+      : 'curl: (7) Failed to connect to localhost port 80: Connection refused'
+  if (c === 'clear') return { clear: true }
+  if (c === 'exit') return { exit: true }
+  return `/bin/sh: ${c.split(' ')[0]}: not found`
+}
+
+function endExec(sessionId: string, code: number | null) {
+  if (!execs.delete(sessionId)) return
+  emit(EVENTS.execExit, { sessionId, code })
+}
+
+function execWrite(sessionId: string, data: string) {
+  const s = execs.get(sessionId)
+  if (!s) throw mockError('notFound', 'The exec session has ended.')
+  for (const ch of Array.from(data)) {
+    if (s.inEscape) {
+      // A CSI sequence ends with a byte from @ to ~. The "[" after ESC does not end it.
+      if (ch !== '[' && ch >= '@' && ch <= '~') s.inEscape = false
+      continue
+    }
+    if (ch === '\x1b') s.inEscape = true
+    else if (ch === '\r' || ch === '\n') {
+      const res = runCommand(s, s.line)
+      s.line = ''
+      if (typeof res === 'string') out(sessionId, '\r\n' + (res ? res.replace(/\n/g, '\r\n') + '\r\n' : '') + PROMPT)
+      else if ('clear' in res) out(sessionId, '\x1b[2J\x1b[3J\x1b[H' + PROMPT)
+      else {
+        out(sessionId, '\r\n\r\n' + dim(`Exiting session with sessionId: ecs-execute-command-${sessionId.slice(0, 8)}.`) + '\r\n')
+        setTimeout(() => endExec(sessionId, 0), 150)
+        return
+      }
+    } else if (ch === '\x7f' || ch === '\b') {
+      if (s.line) {
+        s.line = Array.from(s.line).slice(0, -1).join('')
+        out(sessionId, '\b \b')
+      }
+    } else if (ch === '\x03') {
+      s.line = ''
+      out(sessionId, '^C\r\n' + PROMPT)
+    } else if (ch === '\x04') {
+      if (!s.line) {
+        out(sessionId, 'exit\r\n')
+        setTimeout(() => endExec(sessionId, 0), 150)
+        return
+      }
+    } else if (ch === '\x0c') out(sessionId, '\x1b[2J\x1b[H' + PROMPT + s.line)
+    else if (ch === '\t' || ch >= ' ') {
+      const c = ch === '\t' ? ' ' : ch
+      s.line += c
+      out(sessionId, c)
+    }
+  }
+}
+
