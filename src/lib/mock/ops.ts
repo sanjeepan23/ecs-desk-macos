@@ -471,3 +471,97 @@ function execWrite(sessionId: string, data: string) {
   }
 }
 
+function execStart(req: ExecStart) {
+  guardWrite(req.profile)
+  const check = execCheck(req.profile, req.region, req.cluster, req.taskArn, req.container)
+  if (!check.ok) throw mockError('invalid', check.problems.join(' '))
+  const hit = findTask(req.profile, req.region, req.cluster, req.taskArn)
+  execs.set(req.sessionId, {
+    req,
+    line: '',
+    inEscape: false,
+    port: req.container === 'otel-collector' ? null : (hit?.svc.port ?? null),
+    rev: hit?.task.revision ?? 0,
+    startedAt: hit?.task.startedAt ?? Date.now(),
+    env: hit?.svc.env ?? 'dev',
+  })
+  const sid = 'ecs-execute-command-0' + hex(rng(req.taskArn + req.sessionId), 16)
+  // The real plugin prints its banner after the command returns.
+  setTimeout(() => {
+    if (!execs.has(req.sessionId)) return
+    out(
+      req.sessionId,
+      dim(`$ aws ecs execute-command --cluster ${req.cluster} --task ${req.taskArn.split('/').pop()} --container ${req.container} --interactive --command "${req.command ?? '/bin/sh'}"`) +
+        '\r\n\r\n' +
+        dim('The Session Manager plugin was installed successfully. Use the AWS CLI to start a session.') +
+        '\r\n\r\n' +
+        dim(`Starting session with SessionId: ${sid}`) +
+        '\r\n' +
+        PROMPT,
+    )
+  }, 350)
+}
+
+/* ---------- Dispatch ---------- */
+
+export async function handleOps(cmd: string, args: Args): Promise<unknown> {
+  switch (cmd) {
+    case 'force_deploy':
+      await delay(400)
+      return forceDeploy(args.target as ServiceRef)
+    case 'scale_service':
+      await delay(350)
+      return scale(args.target as ServiceRef, Number(args.desired))
+    case 'rollback_service':
+      await delay(450)
+      return rollback(args.target as ServiceRef, String(args.taskDefinition))
+    case 'stop_task':
+      await delay(300)
+      return stopTask(args.target as TaskRef, (args.reason as string | null) ?? null)
+    case 'resolve_log_targets': {
+      checkSession(String(args.profile))
+      await delay(120)
+      return resolveTargets(String(args.profile), String(args.region), String(args.taskDefinition))
+    }
+    case 'start_log_tail': {
+      checkSession(String(args.profile))
+      await delay(200)
+      const ctx = { profile: String(args.profile), region: String(args.region), targets: (args.targets as LogTarget[]) ?? [] }
+      startTail(String(args.sessionId), ctx, (args.filter as string | null) ?? null)
+      return null
+    }
+    case 'stop_log_tail':
+      stopTail(String(args.sessionId))
+      return null
+    case 'search_logs': {
+      checkSession(String(args.profile))
+      await delay(300)
+      const ctx = { profile: String(args.profile), region: String(args.region), targets: (args.targets as LogTarget[]) ?? [] }
+      if (!ctx.targets.length) return []
+      return searchLogs(ctx, (args.filter as string | null) ?? null, Number(args.startMs), Number(args.endMs), (args.limit as number | null) ?? null)
+    }
+    case 'get_metrics':
+      await delay(250)
+      return getMetrics(String(args.profile), String(args.region), String(args.cluster), String(args.service), Number(args.rangeMinutes))
+    case 'exec_check':
+      await delay(300)
+      return execCheck(String(args.profile), String(args.region), String(args.cluster), String(args.taskArn), String(args.container))
+    case 'exec_start':
+      await delay(200)
+      execStart(args.req as ExecStart)
+      return null
+    case 'exec_write':
+      execWrite(String(args.sessionId), String(args.data))
+      return null
+    case 'exec_resize': {
+      const s = execs.get(String(args.sessionId))
+      if (s) s.req = { ...s.req, cols: Number(args.cols), rows: Number(args.rows) }
+      return null
+    }
+    case 'exec_stop':
+      execs.delete(String(args.sessionId))
+      return null
+    default:
+      return undefined
+  }
+}
