@@ -157,3 +157,61 @@ function useItems(open: boolean): PaletteItem[] {
   }, [open, services, clusters, tasks, profiles, profile, region])
 }
 
+function itemIcon(it: PaletteItem) {
+  return ITEM_ICON[it.id] ?? (it.group === 'Tasks' ? Task01Icon : it.group === 'Clusters' ? ServerStack01Icon : GROUP_ICON[it.group])
+}
+
+/** Mount once near the app root. Registers the keyboard shortcut. */
+export function CommandPalette() {
+  const { open, setOpen } = usePalette()
+  const [query, setQuery] = useState('')
+  const items = useItems(open)
+  const groups = useMemo(() => groupItems(filterItems(items, query)), [items, query])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        usePalette.getState().setOpen(!usePalette.getState().open)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    if (!open) setQuery('')
+  }, [open])
+
+  const run = (it: PaletteItem) => {
+    setOpen(false)
+    // Run after the dialog closes, so a dialog that the item opens gets the focus.
+    setTimeout(it.run, 0)
+  }
+
+  return (
+    <CommandDialog open={open} onOpenChange={setOpen} title="Command palette" description="Search services, clusters, tasks, and actions" className="sm:max-w-xl">
+      <Command shouldFilter={false} loop>
+        <CommandInput value={query} onValueChange={setQuery} placeholder="Search services, clusters, tasks, actions" />
+        <CommandList className="max-h-[min(420px,60vh)]">
+          <CommandEmpty>No results. Try a service name, such as orders-api.</CommandEmpty>
+          {groups.map(([group, list]) => (
+            <CommandGroup key={group} heading={group}>
+              {list.map((it) => (
+                <CommandItem key={it.id} value={it.id} onSelect={() => run(it)}>
+                  {it.health ? (
+                    <span className={cn('size-2 shrink-0 rounded-full', HEALTH_DOT[it.health])} aria-label={it.health} />
+                  ) : (
+                    <HugeiconsIcon icon={itemIcon(it)} className="text-muted-foreground" />
+                  )}
+                  <span className={cn('truncate', it.group === 'Tasks' && 'font-mono text-xs')}>{it.label}</span>
+                  {it.hint && <CommandShortcut className="font-mono tracking-normal">{it.hint}</CommandShortcut>}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          ))}
+        </CommandList>
+      </Command>
+    </CommandDialog>
+  )
+}
