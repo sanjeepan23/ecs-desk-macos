@@ -51,3 +51,109 @@ const GROUP_ICON: Record<PaletteGroup, typeof Home01Icon> = {
   Actions: Activity01Icon,
 }
 
+const VIEWS: { label: string; view: View; icon: typeof Home01Icon }[] = [
+  { label: 'Overview', view: { name: 'overview' }, icon: Home01Icon },
+  { label: 'Clusters', view: { name: 'clusters' }, icon: DashboardSquare01Icon },
+  { label: 'Services', view: { name: 'services' }, icon: Layers01Icon },
+  { label: 'Tasks', view: { name: 'tasks' }, icon: CubeIcon },
+  { label: 'Logs', view: { name: 'logs' }, icon: TextAlignLeftIcon },
+  { label: 'Events', view: { name: 'events' }, icon: Activity01Icon },
+  { label: 'All accounts', view: { name: 'fleet' }, icon: Activity01Icon },
+  { label: 'Settings', view: { name: 'settings' }, icon: Settings01Icon },
+]
+
+const ITEM_ICON: Record<string, typeof Home01Icon> = {
+  ...Object.fromEntries(VIEWS.map((v) => [`go:${v.view.name}`, v.icon])),
+  'act:theme': Moon02Icon,
+  'act:refresh': RefreshIcon,
+  'act:terminal': ComputerTerminal01Icon,
+}
+
+function toggleTheme() {
+  const dark = document.documentElement.classList.contains('dark')
+  useApp
+    .getState()
+    .saveSettings({ theme: dark ? 'light' : 'dark' })
+    .catch(() => {})
+}
+
+async function refreshNow() {
+  try {
+    await api.refreshNow()
+    toast.success('Refreshed')
+  } catch (e) {
+    toast.error('Could not refresh', { description: asAppError(e).message })
+  }
+}
+
+/** Builds the palette items from the current app state. */
+function useItems(open: boolean): PaletteItem[] {
+  const services = useApp((s) => s.services)
+  const clusters = useApp((s) => s.clusters)
+  const tasks = useApp((s) => s.tasks)
+  const profiles = useApp((s) => s.profiles)
+  const profile = useApp((s) => s.profile)
+  const region = useApp((s) => s.region)
+
+  return useMemo(() => {
+    if (!open) return []
+    const { navigate, setProfile } = useApp.getState()
+    const items: PaletteItem[] = VIEWS.map((v) => ({
+      id: `go:${v.view.name}`,
+      group: 'Go to',
+      label: v.label,
+      run: () => navigate(v.view),
+    }))
+    for (const s of services)
+      items.push({
+        id: `svc:${s.clusterName}/${s.name}`,
+        group: 'Services',
+        label: s.name,
+        hint: s.clusterName,
+        health: s.health,
+        keywords: [s.taskDefinitionShort, s.health],
+        run: () => navigate({ name: 'service', cluster: s.clusterName, service: s.name }),
+      })
+    for (const c of clusters)
+      items.push({
+        id: `cl:${c.name}`,
+        group: 'Clusters',
+        label: c.name,
+        hint: region ?? undefined,
+        run: () => navigate({ name: 'cluster', cluster: c.name }),
+      })
+    for (const t of tasks)
+      items.push({
+        id: `task:${t.arn}`,
+        group: 'Tasks',
+        label: shortTaskId(t.id || t.arn),
+        hint: `${t.serviceName ?? t.clusterName} · ${t.lastStatus.toLowerCase()}`,
+        keywords: [t.id, t.privateIp ?? '', ...t.containers.map((c) => c.name)],
+        run: () => navigate({ name: 'task', cluster: t.clusterName, service: t.serviceName, taskArn: t.arn }),
+      })
+    for (const p of profiles)
+      if (p.name !== profile)
+        items.push({
+          id: `prof:${p.name}`,
+          group: 'Profiles',
+          label: `Switch to ${p.name}`,
+          hint: [p.accountId, p.isProd ? 'production' : null].filter(Boolean).join(' · '),
+          keywords: ['profile', 'account'],
+          run: () => void setProfile(p.name),
+        })
+    items.push(
+      { id: 'act:theme', group: 'Actions', label: 'Toggle theme', keywords: ['dark', 'light'], run: toggleTheme },
+      { id: 'act:refresh', group: 'Actions', label: 'Refresh now', keywords: ['reload', 'poll'], run: () => void refreshNow() },
+      {
+        id: 'act:terminal',
+        group: 'Actions',
+        label: 'Open terminal',
+        hint: 'Ctrl+`',
+        keywords: ['exec', 'shell'],
+        run: () => useTerminal.getState().show(),
+      },
+    )
+    return items
+  }, [open, services, clusters, tasks, profiles, profile, region])
+}
+
