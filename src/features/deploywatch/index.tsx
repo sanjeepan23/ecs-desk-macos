@@ -95,3 +95,91 @@ function Counts({ w }: { w: DeployWatch }) {
   )
 }
 
+function WatchCard({ w }: { w: DeployWatch }) {
+  const now = useNow(1000)
+  const hide = useWatches((s) => s.hide)
+  const m = phaseMeta(w.phase)
+  const running = isRunning(w)
+
+  const stop = () => {
+    api.unwatch(w.id).catch((e) => toastError('Could not stop the watch', asAppError(e)))
+  }
+
+  return (
+    <Panel
+      className="mb-4"
+      title={
+        <>
+          {running && <Spinner className="text-info" />}
+          Rollout
+          <ToneBadge tone={m.tone}>{m.label}</ToneBadge>
+          <Tag>{taskDefShort(w.taskDefinition)}</Tag>
+        </>
+      }
+      right={
+        <>
+          <span className="num text-xs text-muted-foreground">{elapsedText(watchElapsed(w, now))}</span>
+          {running ? (
+            <Button size="xs" variant="outline" onClick={stop}>
+              Stop watching
+            </Button>
+          ) : (
+            <Button size="xs" variant="ghost" onClick={() => hide(w.id)}>
+              Hide
+            </Button>
+          )}
+        </>
+      }
+    >
+      <div className="grid gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <UsageBar className="min-w-40 flex-1" value={progressPct(w)} tone={running ? 'info' : m.tone} />
+          <Counts w={w} />
+        </div>
+        {w.message && <p className={cn('text-[12.5px]', w.phase === 'completed' ? 'text-muted-foreground' : TONE_TEXT[m.tone])}>{w.message}</p>}
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="min-w-0">
+            <div className="mb-1.5 text-xs font-medium text-muted-foreground">New events</div>
+            {w.events.length === 0 ? (
+              <p className="text-[12.5px] text-muted-foreground">No new events yet.</p>
+            ) : (
+              <ol className="grid max-h-56 gap-1.5 overflow-y-auto pr-1">
+                {w.events.map((e) => (
+                  <li key={e.id} className="flex gap-2 text-[12.5px]">
+                    <StatusDot tone={eventTone(e.message)} className="mt-1.5" />
+                    <span className="num shrink-0 text-muted-foreground">{hms(e.createdAt)}</span>
+                    <span className="min-w-0 [overflow-wrap:anywhere]">{e.message}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="mb-1.5 text-xs font-medium text-muted-foreground">Stopped tasks of this deployment</div>
+            {w.failedTasks.length === 0 ? (
+              <p className="text-[12.5px] text-muted-foreground">No task of this deployment stopped.</p>
+            ) : (
+              <ul className="grid max-h-56 gap-1.5 overflow-y-auto pr-1">
+                {w.failedTasks.map((t) => (
+                  <li key={t.arn} className="flex gap-2 text-[12.5px]">
+                    <button
+                      type="button"
+                      className="shrink-0 font-mono text-xs text-info hover:underline"
+                      onClick={() => void openTask(w, t)}
+                      title="Open the task"
+                    >
+                      {shortId(t.id || t.arn.split('/').pop() || t.arn)}
+                    </button>
+                    <span className="num shrink-0 text-muted-foreground">{hms(t.stoppedAt)}</span>
+                    <span className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]">{t.stopReason ?? t.stopCode ?? 'No stop reason.'}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
