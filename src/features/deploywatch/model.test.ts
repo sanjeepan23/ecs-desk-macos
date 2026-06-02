@@ -52,3 +52,51 @@ describe('elapsedText', () => {
   })
 })
 
+describe('mergeWatch', () => {
+  it('adds and replaces by id', () => {
+    const one = mergeWatch([], w())
+    expect(one).toHaveLength(1)
+    const two = mergeWatch(one, w({ running: 3, updatedAt: 2000 }))
+    expect(two).toHaveLength(1)
+    expect(two[0].running).toBe(3)
+  })
+
+  it('ignores older updates and does not reopen a finished run', () => {
+    const list = [w({ phase: 'completed', updatedAt: 5000, finishedAt: 5000 })]
+    expect(mergeWatch(list, w({ updatedAt: 4000 }))).toBe(list)
+    expect(mergeWatch(list, w({ updatedAt: 6000 }))).toBe(list)
+    // A new run of the same service replaces the finished one.
+    expect(mergeWatch(list, w({ startedAt: 9000, updatedAt: 9000 }))[0].startedAt).toBe(9000)
+  })
+
+  it('removes a cancelled watch', () => {
+    const list = [w()]
+    expect(mergeWatch(list, w({ phase: 'cancelled', updatedAt: 2000 }))).toEqual([])
+    expect(mergeWatch([], w({ phase: 'cancelled' }))).toEqual([])
+  })
+
+  it('puts running watches first, then newest', () => {
+    const a = w({ id: 'a', phase: 'completed', startedAt: 3000 })
+    const b = w({ id: 'b', startedAt: 1000 })
+    const c = w({ id: 'c', phase: 'failed', startedAt: 2000 })
+    expect(sortWatches([a, b, c]).map((x) => x.id)).toEqual(['b', 'a', 'c'])
+  })
+})
+
+describe('justFinished', () => {
+  it('is true only on the change from running to final', () => {
+    const list = [w()]
+    expect(justFinished(list, w({ phase: 'failed' }))).toBe(true)
+    expect(justFinished(list, w({ running: 2 }))).toBe(false)
+    expect(justFinished([], w({ phase: 'failed' }))).toBe(false)
+    expect(justFinished([w({ phase: 'completed' })], w({ phase: 'completed' }))).toBe(false)
+  })
+})
+
+describe('progressPct', () => {
+  it('handles zero desired', () => {
+    expect(progressPct({ running: 1, desired: 4 })).toBe(25)
+    expect(progressPct({ running: 6, desired: 4 })).toBe(100)
+    expect(progressPct({ running: 0, desired: 0 })).toBe(100)
+  })
+})
