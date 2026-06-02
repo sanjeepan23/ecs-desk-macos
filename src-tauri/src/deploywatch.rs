@@ -381,3 +381,156 @@ pub async fn list_watches(state: State<'_, AppState>) -> AppResult<Vec<DeployWat
     Ok(state.watches.list())
 }
 
+#[tauri::command]
+pub async fn unwatch(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<()> {
+    if let Some(w) = state.watches.cancel(&id) {
+        let _ = app.emit(events::DEPLOY_WATCH, &w);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dep(id: &str, status: &str, rollout: Option<&str>, desired: i32, running: i32) -> Deployment {
+        Deployment {
+            id: id.into(),
+            status: status.into(),
+            task_definition: "arn:aws:ecs:us-east-1:1:task-definition/web:7".into(),
+            desired,
+            running,
+            pending: 0,
+            failed: 0,
+            rollout_state: rollout.map(Into::into),
+            rollout_reason: None,
+            created_at: Some(0),
+            updated_at: None,
+        }
+    }
+
+    fn ev(id: &str, at: i64, msg: &str) -> ServiceEvent {
+        ServiceEvent { id: id.into(), created_at: Some(at), message: msg.into() }
+    }
+
+    fn phase(watched: Option<&str>, deps: &[Deployment], events: &[ServiceEvent], mins: u64) -> WatchPhase {
+        decide_phase(&PhaseInput {
+            watched_id: watched,
+            deployments: deps,
+            events,
+            elapsed: Duration::from_secs(mins * 60),
+            cancelled: false,
+        })
+    }
+
+    #[test]
+    fn in_progress_until_counts_match() {
+        let deps = [dep("new", "PRIMARY", Some("IN_PROGRESS"), 3, 1), dep("old", "ACTIVE", Some("COMPLETED"), 3, 2)];
+        assert_eq!(phase(Some("new"), &deps, &[], 1), WatchPhase::InProgress);
+        // A scale keeps COMPLETED while the new tasks start.
+        let scaling = [dep("a", "PRIMARY", Some("COMPLETED"), 4, 2)];
+        assert_eq!(phase(Some("a"), &scaling, &[], 1), WatchPhase::InProgress);
+    }
+
+    #[test]
+    fn completed() {
+        assert_eq!(phase(Some("a"), &[dep("a", "PRIMARY", Some("COMPLETED"), 3, 3)], &[], 2), WatchPhase::Completed);
+        assert_eq!(phase(Some("a"), &[dep("a", "PRIMARY", None, 2, 2)], &[], 2), WatchPhase::Completed);
+        let two = [dep("a", "PRIMARY", None, 2, 2), dep("b", "ACTIVE", None, 2, 1)];
+        assert_eq!(phase(Some("a"), &two, &[], 2), WatchPhase::InProgress);
+        assert_eq!(phase(None, &[dep("a", "PRIMARY", None, 1, 1)], &[], 0), WatchPhase::Completed);
+    }
+
+    #[test]
+    fn failed() {
+        assert_eq!(phase(Some("a"), &[dep("a", "PRIMARY", Some("FAILED"), 3, 0)], &[], 5), WatchPhase::Failed);
+    }
+
+    #[test]
+    fn rolled_back() {
+        let deps = [dep("old", "PRIMARY", Some("IN_PROGRESS"), 3, 1), dep("new", "ACTIVE", Some("FAILED"), 3, 0)];
+        assert_eq!(phase(Some("new"), &deps, &[], 5), WatchPhase::RolledBack);
+        let cb = [ev("1", 5, "(service web) deployment ecs-svc/1 deployment failed: tasks failed to start. Rolling back.")];
+        let gone = [dep("new", "ACTIVE", Some("FAILED"), 3, 0)];
+        assert_eq!(phase(Some("new"), &gone, &cb, 5), WatchPhase::RolledBack);
+        // Not PRIMARY, no other PRIMARY, no rollback event: the FAILED state decides.
+        assert_eq!(phase(Some("new"), &gone, &[], 5), WatchPhase::Failed);
+    }
+
+    #[test]
+    fn timed_out_and_cancelled() {
+        let deps = [dep("a", "PRIMARY", Some("IN_PROGRESS"), 3, 1)];
+        assert_eq!(phase(Some("a"), &deps, &[], 59), WatchPhase::InProgress);
+        assert_eq!(phase(Some("a"), &deps, &[], 60), WatchPhase::TimedOut);
+        let p = PhaseInput { watched_id: Some("a"), deployments: &deps, events: &[], elapsed: Duration::ZERO, cancelled: true };
+        assert_eq!(decide_phase(&p), WatchPhase::Cancelled);
+    }
+
+    #[test]
+    fn events_merge_newest_first_without_duplicates() {
+        let old = [ev("1", 10, "a")];
+        let new = [ev("3", 30, "c"), ev("1", 10, "a"), ev("2", 20, "b"), ev("0", 1, "too old")];
+        let out = merge_events(&old, &new, 5);
+        assert_eq!(out.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["3", "2", "1"]);
+    }
+
+    #[test]
+    fn failed_tasks_filter() {
+        let td = "arn:aws:ecs:us-east-1:1:task-definition/web:7";
+        let mk = |id: &str, td: &str, started: Option<i64>, stopped: Option<i64>| Task {
+            arn: id.into(),
+            id: id.into(),
+            cluster_name: String::new(),
+            service_name: None,
+            last_status: "STOPPED".into(),
+            desired_status: "STOPPED".into(),
+            health_status: None,
+            task_definition: td.into(),
+            revision: None,
+            availability_zone: None,
+            private_ip: None,
+            cpu: None,
+            memory: None,
+            started_at: started,
+            stopped_at: stopped,
+            stop_reason: None,
+            stop_code: None,
+            launch_type: None,
+            enable_execute_command: false,
+            containers: vec![],
+        };
+        let tasks = [
+            mk("a", td, Some(110), Some(120)),
+            mk("b", td, None, Some(130)),
+            mk("old-task", td, Some(50), Some(140)),
+            mk("other-td", "web:6", Some(110), Some(150)),
+            mk("before", td, Some(101), Some(90)),
+        ];
+        let out = pick_failed_tasks(&tasks, td, 100, 100);
+        assert_eq!(out.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["b", "a"]);
+    }
+
+    #[test]
+    fn messages_are_one_sentence() {
+        let w = DeployWatch {
+            id: "p/r/c/web".into(),
+            target: ServiceRef { profile: "p".into(), region: "r".into(), cluster: "c".into(), service: "web".into() },
+            deployment_id: None,
+            task_definition: "arn:aws:ecs:us-east-1:1:task-definition/web:7".into(),
+            phase: WatchPhase::InProgress,
+            desired: 3,
+            running: 3,
+            pending: 0,
+            failed: 2,
+            started_at: 0,
+            updated_at: 0,
+            finished_at: None,
+            events: vec![],
+            failed_tasks: vec![],
+            message: None,
+        };
+        assert_eq!(final_message(WatchPhase::Completed, &w, None), "web:7 is running on 3 of 3 tasks.");
+        assert_eq!(final_message(WatchPhase::Failed, &w, Some("Circuit breaker tripped.")), "The rollout of web:7 failed: Circuit breaker tripped.");
+        assert_eq!(final_message(WatchPhase::Failed, &w, None), "The rollout of web:7 failed with 2 failed tasks.");
+    }
+}
