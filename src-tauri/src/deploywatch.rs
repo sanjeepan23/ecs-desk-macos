@@ -173,3 +173,52 @@ pub fn decide_phase(p: &PhaseInput) -> WatchPhase {
     WatchPhase::InProgress
 }
 
+fn task_def_name(td: &str) -> &str {
+    td.rsplit('/').next().unwrap_or(td)
+}
+
+/// One plain sentence for a finished watch.
+pub fn final_message(phase: WatchPhase, w: &DeployWatch, reason: Option<&str>) -> String {
+    let td = task_def_name(&w.task_definition);
+    match phase {
+        WatchPhase::Completed => format!("{td} is running on {} of {} tasks.", w.running, w.desired),
+        WatchPhase::Failed => match reason.filter(|r| !r.is_empty()) {
+            Some(r) => format!("The rollout of {td} failed: {}", r.trim_end_matches('.').to_owned() + "."),
+            None => format!("The rollout of {td} failed with {} failed tasks.", w.failed),
+        },
+        WatchPhase::RolledBack => format!("ECS rolled back or replaced the deployment of {td}."),
+        WatchPhase::TimedOut => format!("The rollout of {td} did not finish in 60 minutes."),
+        WatchPhase::Cancelled => "You stopped watching this rollout.".into(),
+        WatchPhase::InProgress => String::new(),
+    }
+}
+
+/// Copies counts from the watched deployment and adds new events.
+fn apply_service(w: &mut DeployWatch, detail: &ServiceDetail) {
+    let deps = &detail.service.deployments;
+    let watched = match &w.deployment_id {
+        Some(id) => deps.iter().find(|d| &d.id == id),
+        None => primary(deps),
+    };
+    if let Some(d) = watched {
+        w.desired = d.desired;
+        w.running = d.running;
+        w.pending = d.pending;
+        w.failed = d.failed;
+    }
+    w.events = merge_events(&w.events, &detail.events, w.started_at);
+}
+
+/// Newest first, deduped by id, only events at or after `since`.
+pub fn merge_events(old: &[ServiceEvent], new: &[ServiceEvent], since: i64) -> Vec<ServiceEvent> {
+    let mut out: Vec<ServiceEvent> = old.to_vec();
+    for e in new {
+        if e.created_at.is_some_and(|t| t >= since) && !out.iter().any(|o| o.id == e.id) {
+            out.push(e.clone());
+        }
+    }
+    out.sort_by_key(|e| std::cmp::Reverse(e.created_at));
+    out.truncate(MAX_EVENTS);
+    out
+}
+
