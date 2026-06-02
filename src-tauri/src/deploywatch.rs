@@ -222,3 +222,115 @@ pub fn merge_events(old: &[ServiceEvent], new: &[ServiceEvent], since: i64) -> V
     out
 }
 
+/// Stopped tasks of the watched task definition. Tasks that started before `started_after` are old tasks that a rollout or scale-in replaced.
+pub fn pick_failed_tasks(tasks: &[Task], task_definition: &str, since: i64, started_after: i64) -> Vec<Task> {
+    let mut out: Vec<Task> = tasks
+        .iter()
+        .filter(|t| t.task_definition == task_definition)
+        .filter(|t| t.stopped_at.is_some_and(|s| s >= since))
+        .filter(|t| t.started_at.is_none_or(|s| s >= started_after))
+        .cloned()
+        .collect();
+    out.sort_by_key(|t| std::cmp::Reverse(t.stopped_at));
+    out.truncate(MAX_FAILED_TASKS);
+    out
+}
+
+type ProgressKey = (WatchPhase, i32, i32, i32, i32, Vec<String>, Vec<String>);
+
+fn progress_key(w: &DeployWatch) -> ProgressKey {
+    (
+        w.phase,
+        w.desired,
+        w.running,
+        w.pending,
+        w.failed,
+        w.events.iter().map(|e| e.id.clone()).collect(),
+        w.failed_tasks.iter().map(|t| t.arn.clone()).collect(),
+    )
+}
+
+fn notify(app: &AppHandle, w: &DeployWatch) {
+    let verb = match w.phase {
+        WatchPhase::Completed => "completed",
+        WatchPhase::Failed => "failed",
+        WatchPhase::RolledBack => "rolled back",
+        WatchPhase::TimedOut => "timed out",
+        _ => return,
+    };
+    let title = format!("{} rollout {verb}", w.target.service);
+    let body = format!("{} of {} tasks running, {} failed. {}", w.running, w.desired, w.failed, w.message.as_deref().unwrap_or(""));
+    if let Err(e) = app.notification().builder().title(title).body(body.trim_end()).show() {
+        log::warn!("could not show notification for {}: {e}", w.id);
+    }
+}
+
+async fn run(app: AppHandle, id: String, generation: u64, deploy_created_at: i64) {
+    let state = app.state::<AppState>();
+    let start = Instant::now();
+    let mut last_tasks: Option<Instant> = None;
+    loop {
+        tokio::time::sleep(POLL_EVERY).await;
+        let Some(mut w) = state.watches.snapshot(&id, generation) else { return };
+        if w.phase != WatchPhase::InProgress {
+            return;
+        }
+        let before = progress_key(&w);
+        let t = w.target.clone();
+        let mut reason = None;
+        let mut deployments = Vec::new();
+        match fetch_service(&state, &t.profile, &t.region, &t.cluster, &t.service).await {
+            Ok(detail) => {
+                apply_service(&mut w, &detail);
+                deployments = detail.service.deployments;
+            }
+            Err(e) => log::warn!("deploy watch {id}: {}", e.message),
+        }
+        if last_tasks.is_none_or(|l| l.elapsed() >= TASKS_EVERY) {
+            last_tasks = Some(Instant::now());
+            match fetch_tasks(&state, &t.profile, &t.region, &t.cluster, Some(&t.service), "STOPPED").await {
+                Ok(tasks) => {
+                    w.failed_tasks = pick_failed_tasks(&tasks, &w.task_definition, w.started_at, deploy_created_at)
+                }
+                Err(e) => log::warn!("deploy watch {id}: {}", e.message),
+            }
+        }
+        // Without fresh deployments, only the timeout can end the watch.
+        let phase = if deployments.is_empty() {
+            if start.elapsed() >= TIMEOUT { WatchPhase::TimedOut } else { WatchPhase::InProgress }
+        } else {
+            decide_phase(&PhaseInput {
+                watched_id: w.deployment_id.as_deref(),
+                deployments: &deployments,
+                events: &w.events,
+                elapsed: start.elapsed(),
+                cancelled: false,
+            })
+        };
+        if phase == WatchPhase::Failed {
+            reason = deployments
+                .iter()
+                .find(|d| Some(&d.id) == w.deployment_id.as_ref())
+                .and_then(|d| d.rollout_reason.clone());
+        }
+        w.phase = phase;
+        let done = phase != WatchPhase::InProgress;
+        if done {
+            w.finished_at = Some(now_ms());
+            w.message = Some(final_message(phase, &w, reason.as_deref()));
+        }
+        if progress_key(&w) == before {
+            continue;
+        }
+        w.updated_at = now_ms();
+        if !state.watches.store(generation, &w) {
+            return;
+        }
+        let _ = app.emit(events::DEPLOY_WATCH, &w);
+        if done {
+            notify(&app, &w);
+            return;
+        }
+    }
+}
+
