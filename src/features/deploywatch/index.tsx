@@ -44,3 +44,54 @@ export function watchService(target: ServiceRef): void {
     .catch((e) => toastError(`Could not watch the rollout of ${target.service}`, asAppError(e)))
 }
 
+function finishToast(w: DeployWatch) {
+  const m = phaseMeta(w.phase)
+  const title = `${w.target.service} rollout ${m.verb}`
+  const opts = {
+    description: w.message ?? `${w.running} of ${w.desired} tasks running.`,
+    action: { label: 'View', onClick: () => void openWatch(w) },
+    duration: 10_000,
+  }
+  if (w.phase === 'completed') toast.success(title, opts)
+  else if (w.phase === 'failed') toast.error(title, opts)
+  else if (w.phase !== 'cancelled') toast.warning(title, opts)
+}
+
+/** Mount once near the app root. Subscribes to `deploy://watch` and shows toasts. */
+export function DeployWatchHost() {
+  useEffect(() => {
+    let live = true
+    const un = events.onDeployWatch((w) => {
+      const { watches, upsert } = useWatches.getState()
+      if (justFinished(watches, w)) finishToast(w)
+      upsert(w)
+    })
+    api
+      .listWatches()
+      .then((list) => live && list.forEach(useWatches.getState().upsert))
+      .catch(() => {})
+    return () => {
+      live = false
+      void un.then((f) => f())
+    }
+  }, [])
+  return null
+}
+
+function Spinner({ className }: { className?: string }) {
+  return <Icon icon={Loading03Icon} size={13} className={cn('animate-spin', className)} />
+}
+
+function Counts({ w }: { w: DeployWatch }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px]">
+      <span className="num">
+        <b className="text-foreground">{w.running}</b>
+        <span className="text-muted-foreground"> of {w.desired} running</span>
+      </span>
+      <span className={cn('num', w.pending > 0 ? 'text-info' : 'text-muted-foreground')}>{w.pending} pending</span>
+      <span className={cn('num', w.failed > 0 ? 'text-crit' : 'text-muted-foreground')}>{w.failed} failed</span>
+    </div>
+  )
+}
+
