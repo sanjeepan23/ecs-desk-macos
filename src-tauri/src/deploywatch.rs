@@ -113,3 +113,63 @@ impl WatchRegistry {
     }
 }
 
+fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+pub fn watch_id(t: &ServiceRef) -> String {
+    format!("{}/{}/{}/{}", t.profile, t.region, t.cluster, t.service)
+}
+
+fn primary(deployments: &[Deployment]) -> Option<&Deployment> {
+    deployments.iter().find(|d| d.status == "PRIMARY").or_else(|| deployments.first())
+}
+
+fn is_rollback_event(message: &str) -> bool {
+    let m = message.to_ascii_lowercase();
+    m.contains("circuit breaker") || m.contains("rolling back") || m.contains("rolled back")
+}
+
+pub struct PhaseInput<'a> {
+    pub watched_id: Option<&'a str>,
+    pub deployments: &'a [Deployment],
+    /// Service events since the watch started.
+    pub events: &'a [ServiceEvent],
+    pub elapsed: Duration,
+    pub cancelled: bool,
+}
+
+/// Decides the phase of a watch from the current service state.
+pub fn decide_phase(p: &PhaseInput) -> WatchPhase {
+    if p.cancelled {
+        return WatchPhase::Cancelled;
+    }
+    let watched = match p.watched_id {
+        Some(id) => p.deployments.iter().find(|d| d.id == id),
+        None => primary(p.deployments),
+    };
+    let current_primary = p.deployments.iter().find(|d| d.status == "PRIMARY");
+    match watched {
+        Some(w) if w.status == "PRIMARY" => match w.rollout_state.as_deref() {
+            Some("FAILED") => return WatchPhase::Failed,
+            // A scale keeps the state COMPLETED, so the counts must also match.
+            Some("COMPLETED") if w.running == w.desired && w.pending == 0 => return WatchPhase::Completed,
+            None if p.deployments.len() == 1 && w.running == w.desired => return WatchPhase::Completed,
+            _ => {}
+        },
+        _ => {
+            let replaced = current_primary.is_some_and(|d| Some(d.id.as_str()) != watched.map(|w| w.id.as_str()));
+            if replaced || p.events.iter().any(|e| is_rollback_event(&e.message)) {
+                return WatchPhase::RolledBack;
+            }
+            if watched.is_some_and(|w| w.rollout_state.as_deref() == Some("FAILED")) {
+                return WatchPhase::Failed;
+            }
+        }
+    }
+    if p.elapsed >= TIMEOUT {
+        return WatchPhase::TimedOut;
+    }
+    WatchPhase::InProgress
+}
+
