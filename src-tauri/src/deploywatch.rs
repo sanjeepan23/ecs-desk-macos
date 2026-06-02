@@ -334,3 +334,50 @@ async fn run(app: AppHandle, id: String, generation: u64, deploy_created_at: i64
     }
 }
 
+/// Starts a watch, or returns the running watch for the same service.
+#[tauri::command]
+pub async fn watch_deployment(app: AppHandle, state: State<'_, AppState>, target: ServiceRef) -> AppResult<DeployWatch> {
+    let id = watch_id(&target);
+    if let Some(w) = state.watches.running(&id) {
+        return Ok(w);
+    }
+    let detail = fetch_service(&state, &target.profile, &target.region, &target.cluster, &target.service).await?;
+    let now = now_ms();
+    let dep = primary(&detail.service.deployments);
+    let created = dep.and_then(|d| d.created_at);
+    // An active rollout counts from its creation. Otherwise the watch starts now, for example after a scale.
+    let started_at = match (dep.and_then(|d| d.rollout_state.as_deref()), created) {
+        (Some("IN_PROGRESS"), Some(c)) => c.min(now),
+        _ => now - EVENT_LOOKBACK_MS,
+    };
+    let mut watch = DeployWatch {
+        id: id.clone(),
+        target,
+        deployment_id: dep.map(|d| d.id.clone()),
+        task_definition: dep.map(|d| d.task_definition.clone()).unwrap_or_else(|| detail.service.task_definition.clone()),
+        phase: WatchPhase::InProgress,
+        desired: 0,
+        running: 0,
+        pending: 0,
+        failed: 0,
+        started_at,
+        updated_at: now,
+        finished_at: None,
+        events: vec![],
+        failed_tasks: vec![],
+        message: None,
+    };
+    apply_service(&mut watch, &detail);
+    let generation = state.watches.insert(watch.clone());
+    let handle = tauri::async_runtime::spawn(run(app.clone(), id.clone(), generation, created.unwrap_or(started_at)));
+    state.watches.set_handle(&id, generation, handle);
+    let _ = app.emit(events::DEPLOY_WATCH, &watch);
+    Ok(watch)
+}
+
+/// Running and recently finished watches, newest first.
+#[tauri::command]
+pub async fn list_watches(state: State<'_, AppState>) -> AppResult<Vec<DeployWatch>> {
+    Ok(state.watches.list())
+}
+
