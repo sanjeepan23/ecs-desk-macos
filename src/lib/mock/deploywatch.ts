@@ -153,3 +153,30 @@ function watch(target: ServiceRef): DeployWatch {
   return out
 }
 
+function unwatch(id: string) {
+  const e = entries.get(id)
+  if (!e) return
+  clearInterval(e.timer ?? undefined)
+  e.timer = null
+  if (e.watch.phase !== 'inProgress') return
+  const now = Date.now()
+  Object.assign(e.watch, { phase: 'cancelled', finishedAt: now, updatedAt: now, message: message('cancelled', e.watch) })
+  emit(EVENTS.deployWatch, clone(e.watch))
+}
+
+export async function handleDeployWatch(cmd: string, args: Record<string, unknown>): Promise<unknown> {
+  switch (cmd) {
+    case 'watch_deployment':
+      await delay(150)
+      return watch(args.target as ServiceRef)
+    case 'list_watches':
+      await delay(60)
+      prune()
+      return [...entries.values()].map((e) => clone(e.watch)).sort((a, b) => b.startedAt - a.startedAt)
+    case 'unwatch':
+      unwatch(String(args.id))
+      return null
+    default:
+      return undefined
+  }
+}
