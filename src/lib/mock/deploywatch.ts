@@ -96,3 +96,60 @@ function apply(w: DeployWatch, svc: MockService) {
   w.events = newEvents(w.events, svc.events, w.startedAt)
 }
 
+function tick(id: string) {
+  const e = entries.get(id)
+  if (!e || e.watch.phase !== 'inProgress') return
+  const w = e.watch
+  const before = keyOf(w)
+  const svc = findService(w.target.profile, w.target.region, w.target.cluster, w.target.service)
+  if (svc) {
+    apply(w, svc)
+    w.failedTasks = failedTasks(svc, w, e.deployCreatedAt)
+    w.phase = decide(w, svc.summary.deployments, Date.now() - e.begunAt)
+  }
+  if (w.phase !== 'inProgress') {
+    w.finishedAt = Date.now()
+    w.message = message(w.phase, w)
+    clearInterval(e.timer ?? undefined)
+    e.timer = null
+  }
+  if (keyOf(w) === before) return
+  w.updatedAt = Date.now()
+  emit(EVENTS.deployWatch, clone(w))
+}
+
+function watch(target: ServiceRef): DeployWatch {
+  checkSession(target.profile)
+  prune()
+  const id = idOf(target)
+  const running = entries.get(id)
+  if (running?.watch.phase === 'inProgress') return clone(running.watch)
+  const svc = findService(target.profile, target.region, target.cluster, target.service)
+  if (!svc) throw mockError('notFound', `Service ${target.service} was not found in ${target.cluster}.`)
+  const now = Date.now()
+  const d = primaryOf(svc.summary.deployments)
+  const startedAt = d?.rolloutState === 'IN_PROGRESS' && d.createdAt != null ? Math.min(d.createdAt, now) : now - LOOKBACK_MS
+  const w: DeployWatch = {
+    id,
+    target: clone(target),
+    deploymentId: d?.id ?? null,
+    taskDefinition: d?.taskDefinition ?? svc.summary.taskDefinition,
+    phase: 'inProgress',
+    desired: 0,
+    running: 0,
+    pending: 0,
+    failed: 0,
+    startedAt,
+    updatedAt: now,
+    finishedAt: null,
+    events: [],
+    failedTasks: [],
+    message: null,
+  }
+  apply(w, svc)
+  entries.set(id, { watch: w, timer: setInterval(() => tick(id), POLL_MS), deployCreatedAt: d?.createdAt ?? startedAt, begunAt: now })
+  const out = clone(w)
+  emit(EVENTS.deployWatch, out)
+  return out
+}
+
