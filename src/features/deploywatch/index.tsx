@@ -183,3 +183,78 @@ function WatchCard({ w }: { w: DeployWatch }) {
   )
 }
 
+/** Live rollout timeline at the top of the service Deployments tab. */
+export function DeployTimeline({ service }: { service: ServiceSummary }) {
+  const profile = useApp((s) => s.profile)
+  const region = useApp((s) => s.region)
+  const target = profile && region ? { profile, region, cluster: service.clusterName, service: service.name } : null
+  const id = target ? watchId(target) : null
+  const watch = useWatches((s) => (id ? s.watches.find((w) => w.id === id) : undefined))
+
+  if (!target) return null
+  if (watch) return <WatchCard w={watch} />
+  if (primaryDeployment(service)?.rolloutState !== 'IN_PROGRESS') return null
+  return (
+    <div className="mb-3 flex items-center gap-2 text-[12.5px] text-muted-foreground">
+      A rollout is in progress.
+      <Button size="xs" variant="outline" onClick={() => watchService(target)}>
+        <Icon icon={ViewIcon} size={13} />
+        Watch rollout
+      </Button>
+    </div>
+  )
+}
+
+/** Status bar item with the count of running watches and a popover list. */
+export function RolloutsIndicator() {
+  const watches = useWatches((s) => s.watches)
+  const now = useNow(1000)
+  if (watches.length === 0) return null
+  const active = watches.filter(isRunning).length
+  const btn = 'inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className={btn} aria-label={`Rollouts: ${active} running, ${watches.length} in total`}>
+          {active > 0 ? <Spinner className="text-info" /> : <StatusDot tone={phaseMeta(watches[0].phase).tone} />}
+          Rollouts <span className="num">{active > 0 ? active : watches.length}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" side="top" className="w-80 gap-2 p-2">
+        <div className="px-2 pt-1 text-xs font-medium text-muted-foreground">
+          {active > 0 ? `${active} running` : 'No rollout is running'} · finished rollouts stay for 30 min
+        </div>
+        <ul className="grid gap-0.5">
+          {watches.map((w) => {
+            const m = phaseMeta(w.phase)
+            return (
+              <li key={w.id}>
+                <button
+                  type="button"
+                  className="grid w-full gap-1 rounded-xl px-2 py-1.5 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  onClick={() => void openWatch(w)}
+                >
+                  <span className="flex items-center gap-2">
+                    {isRunning(w) ? <Spinner className="text-info" /> : <StatusDot tone={m.tone} />}
+                    <span className="min-w-0 flex-1 truncate font-medium">{w.target.service}</span>
+                    <span className={cn('text-xs', TONE_TEXT[m.tone])}>{m.label}</span>
+                  </span>
+                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <UsageBar className="w-20 min-w-0" value={progressPct(w)} tone={isRunning(w) ? 'info' : m.tone} />
+                    <span className="num">
+                      {w.running}/{w.desired}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {w.target.profile} · {w.target.cluster}
+                    </span>
+                    <span className="num">{elapsedText(watchElapsed(w, now))}</span>
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </PopoverContent>
+    </Popover>
+  )
+}
