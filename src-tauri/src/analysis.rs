@@ -87,3 +87,53 @@ pub fn classify(task: &Task) -> StopCategory {
     StopCategory::Other
 }
 
+fn title(c: StopCategory) -> &'static str {
+    match c {
+        StopCategory::OutOfMemory => "Out of memory",
+        StopCategory::HealthCheck => "Failed health checks",
+        StopCategory::ImagePull => "Image pull failed",
+        StopCategory::Secrets => "Secrets did not load",
+        StopCategory::EssentialExit => "Essential container exited",
+        StopCategory::Capacity => "No capacity",
+        StopCategory::Network => "Network setup failed",
+        StopCategory::SpotInterruption => "Spot interruption",
+        StopCategory::Deployment => "Replaced by a deployment",
+        StopCategory::ScaleIn => "Scale-in",
+        StopCategory::UserStopped => "Stopped by a user",
+        StopCategory::Other => "Other",
+    }
+}
+
+fn advice(c: StopCategory) -> &'static str {
+    match c {
+        StopCategory::OutOfMemory => {
+            "The container used all of its memory. Raise the task or container memory, or find the leak; the Metrics tab shows the trend."
+        }
+        StopCategory::HealthCheck => {
+            "The load balancer or container health check failed. Check the health check path, port, and grace period, and read the logs from the start of the task."
+        }
+        StopCategory::ImagePull => {
+            "ECS could not pull the image. Check that the image tag exists and that the execution role and network can reach the registry."
+        }
+        StopCategory::Secrets => {
+            "ECS could not read a secret or parameter. Check the ARN and that the execution role can read it and decrypt it with KMS."
+        }
+        StopCategory::EssentialExit => {
+            "An essential container exited, so ECS stopped the task. Read the container logs near the stop time and check the exit code."
+        }
+        StopCategory::Capacity => {
+            "ECS found no capacity to place the task. Check the capacity provider, the cluster instances, and the CPU and memory the task asks for."
+        }
+        StopCategory::Network => {
+            "The task network did not start. Check for free IP addresses in the subnets and for ENI limits."
+        }
+        StopCategory::SpotInterruption => {
+            "AWS took back the Spot capacity. Add on-demand capacity to the strategy if the service cannot lose tasks."
+        }
+        StopCategory::Deployment => "A deployment replaced these tasks. This is normal.",
+        StopCategory::ScaleIn => "The service scaled in and stopped these tasks. This is normal.",
+        StopCategory::UserStopped => "A user or an API call stopped these tasks.",
+        StopCategory::Other => "Open a task to read the full stop reason and container exit codes.",
+    }
+}
+
