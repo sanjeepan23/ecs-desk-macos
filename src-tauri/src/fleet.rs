@@ -97,3 +97,66 @@ fn attention_rank(h: ServiceHealth) -> u8 {
     }
 }
 
+/// Services that are not healthy: failing, then degraded, then deploying. Names sort each group.
+fn attention(services: &[ServiceSummary]) -> Vec<ServiceSummary> {
+    let mut out: Vec<_> = services.iter().filter(|s| s.health != ServiceHealth::Healthy).cloned().collect();
+    out.sort_by(|a, b| {
+        attention_rank(a.health)
+            .cmp(&attention_rank(b.health))
+            .then_with(|| a.cluster_name.cmp(&b.cluster_name))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    out
+}
+
+/// Fills counts, task totals, and attention from a finished scan.
+fn finish_ok(mut e: FleetEntry, clusters: usize, services: &[ServiceSummary], at: i64) -> FleetEntry {
+    e.status = FleetStatus::Ok;
+    e.message = None;
+    e.clusters = clusters as u32;
+    e.services = services.len() as u32;
+    e.running_tasks = services.iter().map(|s| s.running).sum();
+    e.desired_tasks = services.iter().map(|s| s.desired).sum();
+    e.attention = attention(services);
+    e.scanned_at = Some(at);
+    e
+}
+
+fn finish_err(mut e: FleetEntry, err: &AppError, at: i64) -> FleetEntry {
+    let auth = err.kind == ErrorKind::Auth;
+    e.status = if auth { FleetStatus::Auth } else { FleetStatus::Error };
+    e.message = Some(if auth { AUTH_MESSAGE.to_owned() } else { err.message.clone() });
+    e.attention.clear();
+    e.scanned_at = Some(at);
+    e
+}
+
+/// Reads clusters and the services of every cluster. Both calls go through the rate limiter.
+async fn read_pair(st: &AppState, profile: &str, region: &str) -> AppResult<(usize, Vec<ServiceSummary>)> {
+    let clusters = crate::ecs::fetch_clusters(st, profile, region).await?;
+    let lists =
+        try_join_all(clusters.iter().map(|c| crate::ecs::fetch_services(st, profile, region, &c.name))).await?;
+    Ok((clusters.len(), lists.into_iter().flatten().collect()))
+}
+
+async fn scan_pair(app: &AppHandle, generation: u64, sem: &Semaphore, entry: FleetEntry) {
+    let Ok(_permit) = sem.acquire().await else { return };
+    let st = app.state::<AppState>();
+    let scanning = FleetEntry { status: FleetStatus::Scanning, ..entry.clone() };
+    if !st.fleet.store(generation, &scanning) {
+        return;
+    }
+    let _ = app.emit(events::FLEET_ENTRY, &scanning);
+
+    let result = read_pair(&st, &entry.profile, &entry.region).await;
+    let mut done = match result {
+        Ok((clusters, services)) => finish_ok(entry, clusters, &services, now_ms()),
+        Err(e) => finish_err(entry, &e, now_ms()),
+    };
+    // The scan can detect a production profile, so read the flag again.
+    done.is_prod = st.settings.read().await.is_prod(&done.profile);
+    if st.fleet.store(generation, &done) {
+        let _ = app.emit(events::FLEET_ENTRY, &done);
+    }
+}
+
