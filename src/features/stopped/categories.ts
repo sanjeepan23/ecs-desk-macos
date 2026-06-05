@@ -67,3 +67,31 @@ export const CATEGORY_META: Record<StopCategory, CategoryMeta> = {
   other: { label: 'Other', tone: 'warn', expected: false, advice: 'Open a task to read the full stop reason and container exit codes.' },
 }
 
+export function categoryMeta(c: StopCategory | string): CategoryMeta {
+  return CATEGORY_META[c as StopCategory] ?? CATEGORY_META.other
+}
+
+/** Tone of one group. Expected stops are always neutral. */
+export function groupTone(g: StopGroup): Tone {
+  return g.expected ? 'neutral' : categoryMeta(g.category).tone
+}
+
+export function problemGroups(a: StoppedAnalysis | null | undefined): StopGroup[] {
+  return a ? a.groups.filter((g) => !g.expected) : []
+}
+
+/** What the Overview card shows: nothing, a one-line note for normal stops only, or the problem card. */
+export function summaryMode(a: StoppedAnalysis | null | undefined): 'hidden' | 'quiet' | 'problems' {
+  if (!a || a.total === 0) return 'hidden'
+  return problemGroups(a).length ? 'problems' : 'quiet'
+}
+
+/** "137, 1" or "" when there are no codes. */
+export function exitCodesText(codes: number[]): string {
+  return codes.join(', ')
+}
+
+/** "3 tasks" or "1 task". */
+export function taskCount(n: number): string {
+  return `${n} ${n === 1 ? 'task' : 'tasks'}`
+}
