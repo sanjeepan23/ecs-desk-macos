@@ -209,3 +209,103 @@ pub async fn fleet_scan(app: AppHandle, state: State<'_, AppState>, profiles: Op
     Ok(targets)
 }
 
+/// The latest result for each profile and region.
+#[tauri::command]
+pub async fn fleet_snapshot(state: State<'_, AppState>) -> AppResult<Vec<FleetEntry>> {
+    Ok(state.fleet.snapshot())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::profiles::parse_profiles;
+
+    fn svc(name: &str, cluster: &str, health: ServiceHealth, running: i32, desired: i32) -> ServiceSummary {
+        ServiceSummary {
+            arn: format!("arn:{cluster}/{name}"),
+            name: name.into(),
+            cluster_name: cluster.into(),
+            status: "ACTIVE".into(),
+            desired,
+            running,
+            pending: 0,
+            task_definition: String::new(),
+            task_definition_short: String::new(),
+            launch_type: None,
+            health,
+            deployments: vec![],
+            created_at: None,
+            enable_execute_command: false,
+            load_balancers: vec![],
+        }
+    }
+
+    const CONFIG: &str = "[profile b-prod]\nregion = eu-west-1\n[profile a-dev]\nregion = us-east-1\n";
+
+    #[test]
+    fn builds_one_pending_entry_per_region() {
+        let raw = parse_profiles(CONFIG, "");
+        let mut s = Settings::default();
+        s.profile_regions.insert("a-dev".into(), vec!["us-east-1".into(), "us-west-2".into()]);
+        let all = build_entries(&raw, &s, None);
+        let pairs: Vec<_> = all.iter().map(|e| (e.profile.as_str(), e.region.as_str(), e.is_prod)).collect();
+        assert_eq!(pairs, [("a-dev", "us-east-1", false), ("a-dev", "us-west-2", false), ("b-prod", "eu-west-1", true)]);
+        assert!(all.iter().all(|e| e.status == FleetStatus::Pending && e.scanned_at.is_none()));
+
+        let only = build_entries(&raw, &s, Some(&["b-prod".to_owned()]));
+        assert_eq!(only.len(), 1);
+        assert_eq!(only[0].profile, "b-prod");
+    }
+
+    #[test]
+    fn sorts_attention_failing_degraded_deploying() {
+        let list = [
+            svc("a", "c1", ServiceHealth::Deploying, 1, 2),
+            svc("b", "c1", ServiceHealth::Healthy, 2, 2),
+            svc("c", "c2", ServiceHealth::Failing, 0, 2),
+            svc("d", "c1", ServiceHealth::Degraded, 1, 2),
+            svc("e", "c1", ServiceHealth::Failing, 0, 1),
+        ];
+        let names: Vec<_> = attention(&list).into_iter().map(|s| s.name).collect();
+        assert_eq!(names, ["e", "c", "d", "a"]);
+    }
+
+    #[test]
+    fn fills_totals_and_counts() {
+        let list = [svc("a", "c1", ServiceHealth::Healthy, 2, 2), svc("b", "c1", ServiceHealth::Failing, 1, 3)];
+        let e = finish_ok(pending("p", "r", false), 1, &list, 42);
+        assert_eq!(e.status, FleetStatus::Ok);
+        assert_eq!((e.clusters, e.services, e.running_tasks, e.desired_tasks), (1, 2, 3, 5));
+        assert_eq!(e.attention.len(), 1);
+        assert_eq!(e.scanned_at, Some(42));
+    }
+
+    #[test]
+    fn maps_errors_to_status() {
+        let auth = finish_err(pending("p", "r", false), &AppError::new(ErrorKind::Auth, "x"), 1);
+        assert_eq!(auth.status, FleetStatus::Auth);
+        assert_eq!(auth.message.as_deref(), Some(AUTH_MESSAGE));
+        let other = finish_err(pending("p", "r", false), &AppError::new(ErrorKind::Aws, "boom"), 1);
+        assert_eq!(other.status, FleetStatus::Error);
+        assert_eq!(other.message.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn upsert_replaces_by_pair() {
+        let mut v = vec![pending("b", "r1", false)];
+        upsert(&mut v, pending("a", "r1", false));
+        upsert(&mut v, FleetEntry { status: FleetStatus::Ok, ..pending("b", "r1", false) });
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].profile, "a");
+        assert_eq!(v[1].status, FleetStatus::Ok);
+    }
+
+    #[test]
+    fn drops_stale_results() {
+        let f = FleetShared::default();
+        f.generation.store(2, Ordering::SeqCst);
+        assert!(!f.store(1, &pending("p", "r", false)));
+        assert!(f.store(2, &pending("p", "r", false)));
+        assert_eq!(f.snapshot().len(), 1);
+    }
+}
