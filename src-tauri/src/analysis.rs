@@ -200,3 +200,171 @@ pub fn analyze(tasks: &[Task], now_ms: i64) -> StoppedAnalysis {
     }
 }
 
+/// The stop reason, plus the first container reason when it adds detail.
+fn sample_reason(t: &Task) -> String {
+    let stop = t.stop_reason.clone().unwrap_or_default();
+    let extra = t.containers.iter().find_map(|c| c.reason.as_deref().map(|r| (c.name.as_str(), r)));
+    match extra {
+        Some((name, r)) if !stop.contains(r) => {
+            if stop.is_empty() {
+                format!("{name}: {r}")
+            } else {
+                format!("{stop}. {name}: {r}")
+            }
+        }
+        _ => stop,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Container;
+
+    const NOW: i64 = 1_700_000_000_000;
+
+    fn container(name: &str, exit: Option<i32>, reason: Option<&str>) -> Container {
+        Container {
+            name: name.into(),
+            image: None,
+            last_status: Some("STOPPED".into()),
+            health_status: None,
+            exit_code: exit,
+            reason: reason.map(Into::into),
+            runtime_id: None,
+            exec_agent_status: None,
+        }
+    }
+
+    fn task(id: &str, code: Option<&str>, reason: &str, containers: Vec<Container>, age_secs: i64) -> Task {
+        Task {
+            arn: format!("arn:aws:ecs:us-east-1:123456789012:task/c/{id}"),
+            id: id.into(),
+            cluster_name: "c".into(),
+            service_name: Some("web".into()),
+            last_status: "STOPPED".into(),
+            desired_status: "STOPPED".into(),
+            health_status: None,
+            task_definition: "web:1".into(),
+            revision: Some(1),
+            availability_zone: None,
+            private_ip: None,
+            cpu: None,
+            memory: None,
+            started_at: None,
+            stopped_at: Some(NOW - age_secs * 1000),
+            stop_reason: Some(reason.into()),
+            stop_code: code.map(Into::into),
+            launch_type: Some("FARGATE".into()),
+            enable_execute_command: false,
+            containers,
+        }
+    }
+
+    fn cat(code: Option<&str>, reason: &str, containers: Vec<Container>) -> StopCategory {
+        classify(&task("t", code, reason, containers, 0))
+    }
+
+    #[test]
+    fn classifies_real_reasons() {
+        use StopCategory::*;
+        let ess = Some("EssentialContainerExited");
+        let sched = Some("ServiceSchedulerInitiated");
+        assert_eq!(
+            cat(ess, "Essential container in task exited", vec![container("app", Some(137), Some("OutOfMemoryError: Container killed due to memory usage"))]),
+            OutOfMemory
+        );
+        assert_eq!(cat(ess, "Essential container in task exited", vec![container("app", Some(137), Some("OOMKilled"))]), OutOfMemory);
+        // Exit 137 alone is a SIGKILL, for example after the stop timeout.
+        assert_eq!(cat(ess, "Essential container in task exited", vec![container("app", Some(137), None)]), EssentialExit);
+        assert_eq!(cat(ess, "Essential container in task exited", vec![container("app", Some(1), None)]), EssentialExit);
+        assert_eq!(cat(sched, "Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/web/abc)", vec![]), HealthCheck);
+        assert_eq!(cat(sched, "Task failed container health checks", vec![]), HealthCheck);
+        assert_eq!(
+            cat(
+                Some("TaskFailedToStart"),
+                "CannotPullContainerError: pull image manifest has been retried 5 time(s): failed to resolve ref 123.dkr.ecr.us-east-1.amazonaws.com/web:v9: not found",
+                vec![]
+            ),
+            ImagePull
+        );
+        assert_eq!(
+            cat(
+                Some("TaskFailedToStart"),
+                "ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: AccessDeniedException",
+                vec![]
+            ),
+            Secrets
+        );
+        assert_eq!(
+            cat(Some("TaskFailedToStart"), "ResourceInitializationError: unable to retrieve ssm parameter /prod/db/password", vec![]),
+            Secrets
+        );
+        assert_eq!(cat(Some("TaskFailedToStart"), "RESOURCE:MEMORY", vec![]), Capacity);
+        assert_eq!(cat(Some("TaskFailedToStart"), "No Container Instances were found in your cluster.", vec![]), Capacity);
+        assert_eq!(cat(Some("TaskFailedToStart"), "Timeout waiting for network interface provisioning to complete.", vec![]), Network);
+        assert_eq!(cat(Some("TaskFailedToStart"), "ENI provisioning failed: subnet has no free IP addresses", vec![]), Network);
+        assert_eq!(cat(Some("SpotInterruption"), "Your Spot Task was interrupted.", vec![]), SpotInterruption);
+        assert_eq!(cat(Some("TerminationNotice"), "Task stopped due to instance termination.", vec![]), SpotInterruption);
+        assert_eq!(cat(sched, "Scaling activity initiated by (deployment ecs-svc/1234567890123456789)", vec![]), Deployment);
+        assert_eq!(cat(sched, "ECS Deployment Circuit Breaker was triggered", vec![]), Deployment);
+        assert_eq!(cat(sched, "Scaling activity initiated by (service web)", vec![]), ScaleIn);
+        assert_eq!(cat(Some("UserInitiated"), "Task stopped by user.", vec![]), UserStopped);
+        assert_eq!(cat(None, "Something new", vec![]), Other);
+        // "denied" contains "eni" but is not about an ENI.
+        assert_eq!(cat(None, "Access denied", vec![]), Other);
+    }
+
+    #[test]
+    fn groups_sorts_and_finds_crash_loop() {
+        let oom = |id: &str, age| {
+            task(
+                id,
+                Some("EssentialContainerExited"),
+                "Essential container in task exited",
+                vec![
+                    container("app", Some(137), Some("OutOfMemoryError: Container killed due to memory usage")),
+                    container("otel", Some(0), None),
+                ],
+                age,
+            )
+        };
+        let deploy = |id: &str, age| task(id, Some("ServiceSchedulerInitiated"), "Scaling activity initiated by (deployment ecs-svc/1)", vec![], age);
+        let tasks = vec![oom("a", 600), deploy("d1", 30), oom("b", 60), deploy("d2", 40), deploy("d3", 50), oom("c", 300)];
+
+        let a = analyze(&tasks, NOW);
+        assert_eq!(a.total, 6);
+        assert!(a.crash_loop);
+        assert_eq!(a.groups.len(), 2);
+        let g = &a.groups[0];
+        assert_eq!(g.category, StopCategory::OutOfMemory);
+        assert!(!g.expected);
+        assert_eq!(g.count, 3);
+        assert_eq!(g.last_seen, Some(NOW - 60_000));
+        assert_eq!(g.exit_codes, vec![137]);
+        assert_eq!(g.containers, vec!["app".to_string()]);
+        assert!(g.task_arns[0].ends_with("/b"));
+        assert!(g.sample_reason.contains("OutOfMemoryError"));
+        assert!(a.groups[1].expected);
+
+        // Old stops and expected stops do not count as a crash loop.
+        let old = vec![oom("a", 3600), oom("b", 3000), oom("c", 1200), deploy("d", 10)];
+        assert!(!analyze(&old, NOW).crash_loop);
+    }
+
+    #[test]
+    fn caps_task_arns() {
+        let tasks: Vec<Task> = (0..25).map(|i| task(&format!("t{i}"), Some("UserInitiated"), "Task stopped by user.", vec![], i)).collect();
+        let a = analyze(&tasks, NOW);
+        assert_eq!(a.groups[0].count, 25);
+        assert_eq!(a.groups[0].task_arns.len(), MAX_ARNS);
+        assert!(!a.crash_loop);
+    }
+
+    #[test]
+    fn empty_input() {
+        let a = analyze(&[], NOW);
+        assert_eq!(a.total, 0);
+        assert!(a.groups.is_empty());
+    }
+}
