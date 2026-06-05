@@ -137,3 +137,66 @@ fn advice(c: StopCategory) -> &'static str {
     }
 }
 
+fn is_expected(c: StopCategory) -> bool {
+    matches!(c, StopCategory::Deployment | StopCategory::ScaleIn | StopCategory::UserStopped)
+}
+
+/// Groups stopped tasks by cause. `now_ms` sets the end of the crash-loop window.
+pub fn analyze(tasks: &[Task], now_ms: i64) -> StoppedAnalysis {
+    let mut sorted: Vec<&Task> = tasks.iter().collect();
+    sorted.sort_by_key(|t| std::cmp::Reverse(t.stopped_at));
+
+    let mut groups: BTreeMap<StopCategory, StopGroup> = BTreeMap::new();
+    let mut recent_unexpected = 0;
+    for t in sorted {
+        let cat = classify(t);
+        let expected = is_expected(cat);
+        if !expected && t.stopped_at.is_some_and(|s| now_ms - s <= CRASH_LOOP_WINDOW_MS) {
+            recent_unexpected += 1;
+        }
+        let g = groups.entry(cat).or_insert_with(|| StopGroup {
+            category: cat,
+            title: title(cat).into(),
+            count: 0,
+            last_seen: None,
+            task_arns: vec![],
+            exit_codes: vec![],
+            containers: vec![],
+            sample_reason: String::new(),
+            advice: advice(cat).into(),
+            expected,
+        });
+        g.count += 1;
+        if g.last_seen.is_none() {
+            g.last_seen = t.stopped_at;
+        }
+        if g.task_arns.len() < MAX_ARNS {
+            g.task_arns.push(t.arn.clone());
+        }
+        // A failing container has a reason or a non-zero exit code.
+        for c in t.containers.iter().filter(|c| c.reason.is_some() || c.exit_code.is_some_and(|x| x != 0)) {
+            if let Some(x) = c.exit_code.filter(|x| !g.exit_codes.contains(x)) {
+                g.exit_codes.push(x);
+            }
+            if !g.containers.contains(&c.name) {
+                g.containers.push(c.name.clone());
+            }
+        }
+        if g.sample_reason.is_empty() {
+            g.sample_reason = sample_reason(t);
+        }
+    }
+
+    let mut groups: Vec<StopGroup> = groups.into_values().collect();
+    for g in &mut groups {
+        g.exit_codes.sort_unstable();
+    }
+    groups.sort_by_key(|g| (g.expected, std::cmp::Reverse(g.count)));
+    StoppedAnalysis {
+        total: tasks.len() as u32,
+        groups,
+        crash_loop: recent_unexpected >= CRASH_LOOP_STOPS,
+        analyzed_at: now_ms,
+    }
+}
+
