@@ -160,3 +160,52 @@ async fn scan_pair(app: &AppHandle, generation: u64, sem: &Semaphore, entry: Fle
     }
 }
 
+/// Returns one Pending entry per profile and region at once, then scans in the background.
+/// `profiles` = None scans every profile.
+#[tauri::command]
+pub async fn fleet_scan(app: AppHandle, state: State<'_, AppState>, profiles: Option<Vec<String>>) -> AppResult<Vec<FleetEntry>> {
+    let raw = read_raw_profiles().await;
+    let mut targets = {
+        let settings = state.settings.read().await;
+        build_entries(&raw, &settings, profiles.as_deref())
+    };
+
+    let fleet = &state.fleet;
+    let generation = fleet.generation.fetch_add(1, Ordering::SeqCst) + 1;
+    if let Some(old) = fleet.task.lock().map_err(|_| AppError::internal("fleet lock"))?.take() {
+        old.abort();
+    }
+    {
+        let mut entries = fleet.entries.lock().map_err(|_| AppError::internal("fleet lock"))?;
+        // The old scan stops here, so its unfinished pairs join this scan.
+        for e in entries.iter() {
+            let unfinished = matches!(e.status, FleetStatus::Pending | FleetStatus::Scanning);
+            if unfinished && !targets.iter().any(|t| same_pair(t, e)) {
+                targets.push(pending(&e.profile, &e.region, e.is_prod));
+            }
+        }
+        if profiles.is_none() {
+            entries.clear();
+        }
+        for t in &targets {
+            upsert(&mut entries, t.clone());
+        }
+    }
+
+    let handle = {
+        let targets = targets.clone();
+        tauri::async_runtime::spawn(async move {
+            let sem = Arc::new(Semaphore::new(MAX_PARALLEL));
+            join_all(targets.into_iter().map(|e| {
+                let (app, sem) = (app.clone(), sem.clone());
+                async move { scan_pair(&app, generation, &sem, e).await }
+            }))
+            .await;
+        })
+    };
+    if let Ok(mut slot) = fleet.task.lock() {
+        *slot = Some(handle);
+    }
+    Ok(targets)
+}
+
