@@ -45,3 +45,55 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
+fn same_pair(a: &FleetEntry, b: &FleetEntry) -> bool {
+    a.profile == b.profile && a.region == b.region
+}
+
+/// Replaces the entry with the same profile and region, or adds it in sorted order.
+fn upsert(entries: &mut Vec<FleetEntry>, entry: FleetEntry) {
+    match entries.iter_mut().find(|e| same_pair(e, &entry)) {
+        Some(slot) => *slot = entry,
+        None => {
+            let at = entries.iter().position(|e| e.profile > entry.profile).unwrap_or(entries.len());
+            entries.insert(at, entry);
+        }
+    }
+}
+
+fn pending(profile: &str, region: &str, is_prod: bool) -> FleetEntry {
+    FleetEntry {
+        profile: profile.to_owned(),
+        region: region.to_owned(),
+        status: FleetStatus::Pending,
+        message: None,
+        is_prod,
+        clusters: 0,
+        services: 0,
+        running_tasks: 0,
+        desired_tasks: 0,
+        attention: vec![],
+        scanned_at: None,
+    }
+}
+
+/// One Pending entry per profile and region, in profile name order.
+/// `only` = None selects every profile.
+fn build_entries(raw: &[RawProfile], settings: &Settings, only: Option<&[String]>) -> Vec<FleetEntry> {
+    raw.iter()
+        .filter(|p| only.is_none_or(|names| names.contains(&p.name)))
+        .flat_map(|p| {
+            let profile = to_profile(p, settings);
+            profile.regions.iter().map(|r| pending(&profile.name, r, profile.is_prod)).collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn attention_rank(h: ServiceHealth) -> u8 {
+    match h {
+        ServiceHealth::Failing => 0,
+        ServiceHealth::Degraded => 1,
+        ServiceHealth::Deploying => 2,
+        ServiceHealth::Healthy => 3,
+    }
+}
+
