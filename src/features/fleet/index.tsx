@@ -212,3 +212,52 @@ function RegionBlock({ entry: e, onRescan }: { entry: FleetEntry; onRescan: () =
   )
 }
 
+function EntryStatus({ entry: e }: { entry: FleetEntry }) {
+  switch (e.status) {
+    case 'pending':
+      return <ToneBadge tone="neutral">Waiting</ToneBadge>
+    case 'scanning':
+      return (
+        <ToneBadge tone="info" dot={false}>
+          <Icon icon={Loading03Icon} size={12} className="animate-spin" />
+          Scanning
+        </ToneBadge>
+      )
+    case 'ok':
+      return e.attention.length ? <ToneBadge tone="warn">{e.attention.length} need attention</ToneBadge> : <ToneBadge tone="ok">OK</ToneBadge>
+    case 'auth':
+      return <ToneBadge tone="crit">Session expired</ToneBadge>
+    case 'error':
+      return (
+        <ToneBadge tone="crit" dot={false}>
+          <Icon icon={Alert02Icon} size={12} />
+          Error
+        </ToneBadge>
+      )
+  }
+}
+
+function ServiceRow({ entry: e, svc }: { entry: FleetEntry; svc: ServiceSummary }) {
+  const setProfile = useApp((s) => s.setProfile)
+  const setRegion = useApp((s) => s.setRegion)
+  const navigate = useApp((s) => s.navigate)
+
+  const open = async () => {
+    await setProfile(e.profile)
+    await setRegion(e.region)
+    navigate({ name: 'service', cluster: svc.clusterName, service: svc.name })
+  }
+
+  return (
+    <button type="button" className={cn(rowCls, 'pl-8')} onClick={() => void open()}>
+      <span className={cn('w-1 self-stretch rounded', TONE_BG[healthMeta(svc.health).tone])} />
+      <div className="min-w-0 flex-1">
+        <span className="font-semibold">{svc.name}</span> <span className="text-muted-foreground">· {svc.clusterName}</span>
+      </div>
+      <span className="num text-[12.5px] text-muted-foreground">
+        {svc.running}/{svc.desired} running
+      </span>
+      <HealthBadge health={svc.health} />
+    </button>
+  )
+}
