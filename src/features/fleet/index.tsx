@@ -145,3 +145,70 @@ export function FleetView() {
   )
 }
 
+function ProfileCard({ group, onRescan }: { group: FleetGroup; onRescan: () => void }) {
+  return (
+    <Panel
+      flush
+      title={
+        <>
+          {group.isProd && <StatusDot tone="crit" />}
+          <span>{group.profile}</span>
+          {group.isProd && <span className="text-xs font-normal text-crit">production</span>}
+        </>
+      }
+      right={<span className="font-mono text-xs text-muted-foreground">{formatAccount(group.accountId)}</span>}
+    >
+      {group.entries.map((e) => (
+        <RegionBlock key={e.region} entry={e} onRescan={onRescan} />
+      ))}
+    </Panel>
+  )
+}
+
+function RegionBlock({ entry: e, onRescan }: { entry: FleetEntry; onRescan: () => void }) {
+  const login = useApp((s) => s.login)
+  const [busy, setBusy] = useState(false)
+
+  const doLogin = async () => {
+    setBusy(true)
+    try {
+      await login(e.profile)
+      onRescan()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="border-t">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5">
+        <span className="min-w-28 font-mono text-xs">{e.region}</span>
+        <EntryStatus entry={e} />
+        {e.status === 'ok' && (
+          <span className="text-[12.5px] text-muted-foreground">
+            {plural(e.clusters, 'cluster')} · {plural(e.services, 'service')} ·{' '}
+            <span className="num">
+              {e.runningTasks}/{e.desiredTasks}
+            </span>{' '}
+            tasks
+          </span>
+        )}
+        {e.status === 'error' && <span className="min-w-0 flex-1 truncate text-[12.5px] text-crit" title={e.message ?? undefined}>{e.message}</span>}
+        {e.status === 'auth' && <span className="text-[12.5px] text-muted-foreground">Log in to scan this profile.</span>}
+        <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+          {e.scannedAt != null && <span>{ago(e.scannedAt)}</span>}
+          {e.status === 'auth' && (
+            <Button size="xs" onClick={() => void doLogin()} disabled={busy}>
+              <Icon icon={busy ? Loading03Icon : Login01Icon} className={cn(busy && 'animate-spin')} />
+              Log in
+            </Button>
+          )}
+        </span>
+      </div>
+      {sortAttention(e.attention).map((s) => (
+        <ServiceRow key={s.arn} entry={e} svc={s} />
+      ))}
+    </div>
+  )
+}
+
