@@ -94,3 +94,31 @@ pnpm lint                       # lint with oxlint
 cd src-tauri && cargo test      # backend unit tests
 ```
 
+## 🧱 Stack
+
+- **Desktop:** Tauri v2 with a Rust backend (AWS SDK for Rust, SQLite for settings)
+- **UI:** React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui (`radix-maia` style)
+- **Libraries:** Zustand for state, Recharts for charts, xterm.js for the terminal
+
+## 🗂️ Layout
+
+| Path | Content |
+| --- | --- |
+| `src-tauri/src/models.rs` | Data types shared with the UI. Keep in step with `src/lib/types.ts`. |
+| `src-tauri/src/aws.rs` | AWS client cache and rate limiter |
+| `src-tauri/src/ecs.rs`, `poller.rs` | ECS reads and the polling loop |
+| `src-tauri/src/actions.rs`, `logs.rs`, `metrics.rs`, `exec.rs` | Actions, log tail, metrics, exec |
+| `src-tauri/src/analysis.rs` | Groups stopped tasks by cause |
+| `src-tauri/src/deploywatch.rs` | Follows rollouts and sends desktop notifications |
+| `src-tauri/src/fleet.rs` | Scans all profiles and regions |
+| `src/lib/api.ts` | Typed calls to the backend. Uses `src/lib/mock` in a plain browser. |
+| `src/views`, `src/components/shell` | Pages and the app shell |
+| `src/features` | Logs, metrics, terminal, command palette, action dialogs |
+
+## 📚 Docs
+
+- 🎨 UI mock: [docs/ui-mock.html](docs/ui-mock.html)
+
+## 📄 License
+
+Apache-2.0. See [LICENSE](LICENSE).
