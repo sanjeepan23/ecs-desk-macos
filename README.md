@@ -43,3 +43,54 @@ Exec into containers and deploy in one click.
 
 ## 📸 Screenshots
 
+<table>
+  <tr>
+    <td width="50%"><b>🔍 Service details</b><br><img src="docs/screenshots/service.png" alt="Service overview"></td>
+    <td width="50%"><b>📜 Live logs</b><br><img src="docs/screenshots/service-logs.png" alt="Service logs"></td>
+  </tr>
+  <tr>
+    <td><b>📈 Metrics</b><br><img src="docs/screenshots/service-metrics.png" alt="Service metrics"></td>
+    <td><b>🌍 All accounts</b><br><img src="docs/screenshots/fleet.png" alt="All accounts"></td>
+  </tr>
+  <tr>
+    <td><b>⌨️ Command palette</b><br><img src="docs/screenshots/palette.png" alt="Command palette"></td>
+    <td><b>☀️ Light theme</b><br><img src="docs/screenshots/overview-light.png" alt="Overview in the light theme"></td>
+  </tr>
+</table>
+
+## 🛡️ Safety
+
+- 🔐 Credentials stay on your machine. The app reads your local AWS profiles.
+- 🔒 Profiles with "prod" in the name start in read-only mode.
+- ✋ Destructive actions on production profiles ask you to type the service name.
+
+## 📋 Requirements
+
+- 🟢 Node.js 20.19 or later, and pnpm
+- 🦀 Rust 1.88 or later
+- ☁️ AWS profiles in `~/.aws/config` or `~/.aws/credentials`
+- 🔌 For exec: the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
+
+## 🚀 Quick start
+
+```sh
+pnpm install
+pnpm tauri dev      # desktop app with real AWS data
+pnpm dev            # UI only, in a browser, with example data
+```
+
+To build an installer for your platform:
+
+```sh
+pnpm tauri build
+```
+
+## 🧪 Test
+
+```sh
+pnpm test                       # frontend unit tests
+pnpm build                      # type check and build
+pnpm lint                       # lint with oxlint
+cd src-tauri && cargo test      # backend unit tests
+```
+
