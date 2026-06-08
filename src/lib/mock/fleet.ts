@@ -63,3 +63,49 @@ function scanResult(e: FleetEntry): FleetEntry {
   }
 }
 
+async function runScan(gen: number, targets: FleetEntry[]) {
+  let next = 0
+  const worker = async () => {
+    while (next < targets.length && gen === generation) {
+      const e = targets[next++]
+      await delay(150 + Math.random() * 250)
+      store(gen, { ...e, status: 'scanning' })
+      await delay(400 + Math.random() * 600)
+      store(gen, scanResult(e))
+    }
+  }
+  await Promise.all(Array.from({ length: MAX_PARALLEL }, worker))
+}
+
+export async function handleFleet(cmd: string, args: Record<string, unknown>): Promise<unknown> {
+  switch (cmd) {
+    case 'fleet_scan': {
+      if (!expiredOnce) {
+        expiredOnce = true
+        mockControls.expireSession(EXPIRED_PROFILE)
+      }
+      const only = (args.profiles as string[] | null) ?? null
+      const profiles = (await handleData('list_profiles', {})) as Profile[]
+      const targets = profiles.filter((p) => !only || only.includes(p.name)).flatMap((p) => p.regions.map((r) => pending(p, r)))
+      generation++
+      // The old scan stops, so its unfinished pairs join this scan.
+      for (const e of entries) {
+        const unfinished = e.status === 'pending' || e.status === 'scanning'
+        if (unfinished && !targets.some((t) => t.profile === e.profile && t.region === e.region)) targets.push({ ...e, status: 'pending' })
+      }
+      if (!only) entries = []
+      for (const t of targets) {
+        const i = entries.findIndex((x) => x.profile === t.profile && x.region === t.region)
+        if (i < 0) entries.push(t)
+        else entries[i] = t
+      }
+      void runScan(generation, targets)
+      return structuredClone(targets)
+    }
+    case 'fleet_snapshot':
+      await delay(30)
+      return structuredClone(entries)
+    default:
+      return undefined
+  }
+}
