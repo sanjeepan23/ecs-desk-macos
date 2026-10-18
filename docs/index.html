@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ECS Desk</title>
 <meta name="description" content="A desktop app for AWS ECS. See clusters, services, tasks, logs, and metrics on one screen.">
-<link rel="icon" href="icon.png">
+<link rel="icon" type="image/svg+xml" href="logo.svg">
+<link rel="apple-touch-icon" href="icon.png">
 <script>
   try {
     const t = localStorage.getItem('theme');
@@ -99,7 +100,7 @@
   .nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 24px 0 8px; }
   .brand { display: flex; align-items: center; gap: 12px; color: var(--fg); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
   .brand:hover { color: var(--fg); }
-  .brand img { width: 36px; height: 36px; }
+  .brand svg { width: 34px; height: 34px; }
   .links { display: flex; align-items: center; gap: 26px; }
   .links a { color: var(--fg-muted); }
   .links a:hover { color: var(--fg); }
@@ -222,7 +223,7 @@
 
 <div class="container">
   <nav class="nav">
-    <a class="brand" href="./"><img src="icon.png" alt="">ecs-desk</a>
+    <a class="brand" href="./"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 7l22 12.5L32 32 10 19.5z" fill="var(--accent)"/><path d="M8.5 23.5L30 36v22L8.5 45.5z" fill="currentColor"/><path d="M55.5 23.5L34 36v22l21.5-12.5z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/></svg>ecs-desk</a>
     <div class="links">
       <a href="#features">Features</a>
       <a href="demo/">Demo</a>
