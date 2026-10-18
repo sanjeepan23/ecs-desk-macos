@@ -1,6 +1,11 @@
 <div align="center">
 
-# 🖥️ ECS Desk
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-on-dark.svg">
+  <img src="docs/brand/logo-on-light.svg" alt="ECS Desk logo" width="88">
+</picture>
+
+# ECS Desk
 
 **A desktop app for AWS ECS, similar to Lens for Kubernetes.**
 

@@ -182,9 +182,11 @@ export function Titlebar() {
       className={cn('flex h-11 min-w-0 items-center gap-2.5 border-b bg-sidebar pr-3 select-none', isTauri && isMac ? 'pl-[78px]' : 'pl-3')}
     >
       <div data-tauri-drag-region className="flex items-center gap-2 font-bold tracking-tight whitespace-nowrap">
-        <div data-tauri-drag-region className="grid size-[22px] place-items-center rounded-[7px] bg-primary text-[11px] font-bold text-primary-foreground">
-          E
-        </div>
+        <svg data-tauri-drag-region viewBox="0 0 64 64" className="size-[22px] text-foreground" aria-hidden="true">
+          <path d="M32 7l22 12.5L32 32 10 19.5z" className="fill-[#3b5fcc] dark:fill-[#7aa2ff]" />
+          <path d="M8.5 23.5L30 36v22L8.5 45.5z" fill="currentColor" />
+          <path d="M55.5 23.5L34 36v22l21.5-12.5z" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinejoin="round" />
+        </svg>
         <span data-tauri-drag-region className="hidden sm:inline">
           ECS Desk
         </span>
