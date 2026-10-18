@@ -26,3 +26,6 @@ dist-ssr
 # Rust
 src-tauri/target
 src-tauri/gen
+
+# GitHub Pages build
+_site

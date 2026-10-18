@@ -7,7 +7,9 @@
 See clusters, services, tasks, logs, and metrics on one screen.
 Exec into containers and deploy in one click.
 
-[![CI](https://github.com/sanjeepan23/ecs-desk/actions/workflows/ci.yml/badge.svg)](https://github.com/sanjeepan23/ecs-desk/actions/workflows/ci.yml)
+[Website](https://sanjeepan23.github.io/ecs-desk-macos/) · [Live demo](https://sanjeepan23.github.io/ecs-desk-macos/demo/)
+
+[![CI](https://github.com/sanjeepan23/ecs-desk-macos/actions/workflows/ci.yml/badge.svg)](https://github.com/sanjeepan23/ecs-desk-macos/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-0.1.0-informational)
 ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
@@ -117,6 +119,8 @@ cd src-tauri && cargo test      # backend unit tests
 
 ## 📚 Docs
 
+- 🌐 Website: [sanjeepan23.github.io/ecs-desk-macos](https://sanjeepan23.github.io/ecs-desk-macos/)
+- 🕹️ Live demo with example data: [sanjeepan23.github.io/ecs-desk-macos/demo](https://sanjeepan23.github.io/ecs-desk-macos/demo/)
 - 🎨 UI mock: [docs/ui-mock.html](docs/ui-mock.html)
 
 ## 📄 License
